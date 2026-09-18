@@ -91,4 +91,6 @@ The history file appends one redacted paired record per run and can be summarize
 History parsing rejects malformed, unrelated, or unsupported-schema records.
 The examples target GitHub Copilot CLI/ACP.
 Do not substitute a Microsoft Copilot executable merely because its filename contains `copilot.exe`.
+GitHub Copilot CLI versions that report the generic ACP name `Copilot` are verified only when the executable path contains a recognized GitHub distribution marker such as `github-copilot-sdk` or `GitHub CLI\copilot`.
+An explicit ACP identity of `GitHub Copilot` or `GitHub Copilot CLI` is accepted independently of the path.
 The check reports authentication methods but intentionally does not automate terminal login.

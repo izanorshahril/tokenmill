@@ -51,7 +51,9 @@ Use `eval-history <path>` to summarize accepted, rejected, and unknown runs toge
 History parsing is strict: malformed, unrelated, or unsupported-schema lines fail instead of being silently counted.
 Permission requests are cancelled by default in the non-interactive CLI.
 On Windows, pass the executable used by GitHub Copilot CLI's ACP mode, not the Microsoft Copilot executable, shell, PowerShell, or a batch wrapper installed on `PATH`.
-Do not infer product identity from a filename such as `copilot.exe`; verify the negotiated GitHub Copilot ACP agent with `acp-check`.
+Do not infer product identity from a filename such as `copilot.exe`.
+For GitHub Copilot CLI versions that report the generic ACP name `Copilot`, strict verification also requires a GitHub-specific executable path such as the GitHub Copilot SDK or GitHub CLI installation path.
+An explicit negotiated identity of `GitHub Copilot` or `GitHub Copilot CLI` is accepted independently of the path.
 The live client is an ACP prompt client, not a Copilot context interceptor.
 
 ## Provisional boundary

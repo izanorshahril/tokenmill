@@ -53,7 +53,7 @@ fn run_acp_prompt(mut arguments: impl Iterator<Item = String>) {
         std::process::exit(2);
     }
 
-    let config = AcpProcessConfig::new(program)
+    let config = AcpProcessConfig::new(program.clone())
         .with_arg("--acp")
         .with_working_directory(cwd.clone());
     let mut process = match AcpProcess::spawn(&config) {
@@ -133,7 +133,7 @@ fn run_acp_context_prompt(mut arguments: impl Iterator<Item = String>) {
             std::process::exit(1);
         }
     };
-    let config = AcpProcessConfig::new(program)
+    let config = AcpProcessConfig::new(program.clone())
         .with_arg("--acp")
         .with_working_directory(cwd.clone());
     let mut process = match AcpProcess::spawn(&config) {
@@ -152,7 +152,8 @@ fn run_acp_context_prompt(mut arguments: impl Iterator<Item = String>) {
     };
     let mut request = AcpRequest::new("live-context", context);
     request.provider = initialization.agent_name.clone();
-    request.route_status = route_status_for_agent(initialization.agent_name.as_deref());
+    request.route_status =
+        route_status_for_agent(Path::new(&program), initialization.agent_name.as_deref());
     let transformed = AcpAdapter::new(options.policy, max_estimated_tokens).process(request);
     let Some(transformed_context) = transformed.transformed_context else {
         eprintln!("context saver rejected the run: {:?}", transformed.failure);
@@ -240,7 +241,7 @@ fn run_acp_paired_context_prompt(mut arguments: impl Iterator<Item = String>) {
             std::process::exit(1);
         }
     };
-    let config = AcpProcessConfig::new(program)
+    let config = AcpProcessConfig::new(program.clone())
         .with_arg("--acp")
         .with_working_directory(cwd.clone());
     let mut process = match AcpProcess::spawn(&config) {
@@ -258,7 +259,8 @@ fn run_acp_paired_context_prompt(mut arguments: impl Iterator<Item = String>) {
         }
     };
     let provider = initialization.agent_name.clone();
-    let route_status = route_status_for_agent(initialization.agent_name.as_deref());
+    let route_status =
+        route_status_for_agent(Path::new(&program), initialization.agent_name.as_deref());
     let saver_off = match run_live_context_variant(
         &mut process,
         &cwd,
@@ -488,12 +490,35 @@ fn parse_context_kind(kind_name: &str) -> Option<ContextKind> {
     }
 }
 
-fn route_status_for_agent(agent_name: Option<&str>) -> RouteStatus {
-    if agent_name.is_some_and(|name| name.eq_ignore_ascii_case("copilot")) {
+fn route_status_for_agent(program: &Path, agent_name: Option<&str>) -> RouteStatus {
+    let explicit_github_identity = agent_name.is_some_and(|name| {
+        matches!(
+            name.trim().to_ascii_lowercase().as_str(),
+            "github copilot" | "github copilot cli"
+        )
+    });
+    let generic_copilot_identity = agent_name.is_some_and(|name| {
+        name.trim().eq_ignore_ascii_case("copilot") && github_copilot_path_marker(program)
+    });
+    if explicit_github_identity || generic_copilot_identity {
         RouteStatus::Verified
     } else {
         RouteStatus::Unverified
     }
+}
+
+fn github_copilot_path_marker(program: &Path) -> bool {
+    let normalized = program
+        .to_string_lossy()
+        .replace('\\', "/")
+        .to_ascii_lowercase();
+    [
+        "/github-copilot-sdk/",
+        "/github cli/copilot/",
+        "/node_modules/@github/copilot/",
+    ]
+    .iter()
+    .any(|marker| normalized.contains(marker))
 }
 
 #[derive(Debug, Eq, PartialEq)]
@@ -911,7 +936,7 @@ fn run_acp_check(mut arguments: impl Iterator<Item = String>, create_session: bo
         .next()
         .map(PathBuf::from)
         .unwrap_or_else(|| std::env::current_dir().expect("current directory should resolve"));
-    let mut config = AcpProcessConfig::new(program).with_arg("--acp");
+    let mut config = AcpProcessConfig::new(program.clone()).with_arg("--acp");
     for argument in arguments {
         config = config.with_arg(argument);
     }
@@ -934,6 +959,13 @@ fn run_acp_check(mut arguments: impl Iterator<Item = String>, create_session: bo
     println!("protocol version: {}", initialization.protocol_version);
     println!("agent: {:?}", initialization.agent_name);
     println!("agent version: {:?}", initialization.agent_version);
+    println!(
+        "GitHub Copilot identity: {}",
+        route_status_label(route_status_for_agent(
+            Path::new(&program),
+            initialization.agent_name.as_deref()
+        ))
+    );
     println!("auth methods: {:?}", initialization.auth_method_ids);
     if create_session {
         let session_id = match process.new_session(&cwd) {
@@ -1086,7 +1118,7 @@ fn print_help() {
 
 #[cfg(test)]
 mod tests {
-    use std::path::PathBuf;
+    use std::path::{Path, PathBuf};
 
     use super::{
         AcpUsageSummary, LiveVariant, append_paired_observation_report, fs, parse_context_package,
@@ -1098,15 +1130,34 @@ mod tests {
 
     #[test]
     fn verifies_only_the_github_copilot_agent_identity() {
+        let github_copilot_path =
+            Path::new(r"C:\Users\user\AppData\Local\github-copilot-sdk\cli\1.0.86\copilot.exe");
+        let microsoft_copilot_path = Path::new(r"C:\Program Files\Microsoft\copilot.exe");
+
         assert_eq!(
-            route_status_for_agent(Some("Copilot")),
+            route_status_for_agent(microsoft_copilot_path, Some("GitHub Copilot")),
             RouteStatus::Verified
         );
         assert_eq!(
-            route_status_for_agent(Some("Other agent")),
+            route_status_for_agent(microsoft_copilot_path, Some("GitHub Copilot CLI")),
+            RouteStatus::Verified
+        );
+        assert_eq!(
+            route_status_for_agent(github_copilot_path, Some("Copilot")),
+            RouteStatus::Verified
+        );
+        assert_eq!(
+            route_status_for_agent(microsoft_copilot_path, Some("Copilot")),
             RouteStatus::Unverified
         );
-        assert_eq!(route_status_for_agent(None), RouteStatus::Unverified);
+        assert_eq!(
+            route_status_for_agent(github_copilot_path, Some("Other agent")),
+            RouteStatus::Unverified
+        );
+        assert_eq!(
+            route_status_for_agent(github_copilot_path, None),
+            RouteStatus::Unverified
+        );
     }
 
     #[test]
