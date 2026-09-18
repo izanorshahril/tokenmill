@@ -20,7 +20,7 @@
 ## Codemapping
 
 Graphify is optional development tooling, not a Tokenmill runtime or Cargo dependency.
-Use it only when a task needs repository-wide topology or cross-file relationship discovery:
+Use Graphify first for repository-wide topology, architecture, ownership, and cross-file relationship questions instead of broad grep, glob, or whole-file reads:
 
 ```powershell
 uvx --from graphifyy graphify extract . --code-only --no-viz
@@ -28,9 +28,18 @@ uvx --from graphifyy graphify query "<focused architecture question>" --graph gr
 ```
 
 Code-only extraction is local and does not require an LLM API key.
-Do not run Graphify for routine file-local changes, and do not enable document or media extraction without an explicit privacy decision.
-Prefer focused Graphify queries over reading the entire generated report.
-Keep query budgets bounded, and use source-file reads only to verify the small set of nodes returned.
+Run the extraction once per working session when the map is absent or stale, then use focused queries rather than reading the entire generated report.
+Use exact symbol or literal search, targeted source reads, compiler diagnostics, and tests after Graphify has narrowed the relevant files or when the question is inherently file-local.
+Do not enable document or media extraction without an explicit privacy decision.
+Keep query budgets bounded and verify returned nodes against source before making changes.
+
+## Future codemap integration
+
+The current Graphify workflow is a useful prototype for a future optional Tokenmill codemap adapter.
+That adapter should expose a local derived index for context selection and architecture queries, while keeping source files as the source of truth.
+It should be pluggable, cacheable, invalidated when inputs change, and disabled unless the user opts in.
+It must not become a Cargo runtime dependency, upload code or prompts, or silently add graph data to Copilot requests.
+The first useful product seam would be an optional `tokenmill map` developer command that invokes a configured local provider such as Graphify and reports provenance for every selected file or symbol.
 
 ## Validation and changes
 
