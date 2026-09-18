@@ -1,6 +1,6 @@
 # Research: Choose the Rust toolchain and deployment baseline
 
-Ticket: [Choose the Rust toolchain and deployment baseline](../issues/TM-WF-0004-rust-toolchain-and-deployment-matrix.md)
+Ticket: [Choose the Rust toolchain and deployment baseline](../archive/issues/TM-WF-0004-rust-toolchain-and-deployment-matrix.md)
 
 ## Findings
 

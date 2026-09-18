@@ -1,6 +1,6 @@
 # Research: Build an evidence-backed saver and steering taxonomy
 
-Ticket: [Build an evidence-backed saver and steering taxonomy](../issues/TM-WF-0005-saver-technique-taxonomy.md)
+Ticket: [Build an evidence-backed saver and steering taxonomy](../archive/issues/TM-WF-0005-saver-technique-taxonomy.md)
 
 ## Taxonomy
 

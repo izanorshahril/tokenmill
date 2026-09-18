@@ -184,6 +184,7 @@ pub struct SaverReport {
     pub before_estimated_tokens: usize,
     pub after_estimated_tokens: usize,
     pub dropped_item_ids: Vec<String>,
+    pub transformed_item_ids: Vec<String>,
     pub status: PruneStatus,
     pub measurement: MeasurementStatus,
 }
@@ -246,11 +247,92 @@ impl DeterministicPruner {
                 before_estimated_tokens,
                 after_estimated_tokens,
                 dropped_item_ids,
+                transformed_item_ids: Vec::new(),
                 status,
                 measurement: MeasurementStatus::Estimated,
             },
         }
     }
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct ConsecutiveOutputCompactor;
+
+impl ConsecutiveOutputCompactor {
+    pub fn apply(&self, input: &ContextPackage) -> TransformResult {
+        let mut package = input.clone();
+        let before_estimated_tokens = package.estimated_tokens();
+        let mut transformed_item_ids = Vec::new();
+
+        for item in &mut package.items {
+            if item.protected
+                || !matches!(
+                    item.kind,
+                    ContextKind::CommandOutput | ContextKind::ToolOutput
+                )
+            {
+                continue;
+            }
+
+            let compacted = compact_output(&item.content);
+            if compacted != item.content {
+                item.content = compacted;
+                transformed_item_ids.push(item.id.clone());
+            }
+        }
+
+        let after_estimated_tokens = package.estimated_tokens();
+        let status = if transformed_item_ids.is_empty() {
+            PruneStatus::Unchanged
+        } else {
+            PruneStatus::Applied
+        };
+
+        TransformResult {
+            package,
+            report: SaverReport {
+                saver_name: "consecutive-output-compactor",
+                before_estimated_tokens,
+                after_estimated_tokens,
+                dropped_item_ids: Vec::new(),
+                transformed_item_ids,
+                status,
+                measurement: MeasurementStatus::Estimated,
+            },
+        }
+    }
+}
+
+fn compact_output(content: &str) -> String {
+    let mut lines = Vec::new();
+    let mut previous_line = None;
+    let mut previous_was_blank = false;
+
+    for line in content.lines() {
+        let line = line.trim_end_matches('\r');
+        if line.is_empty() {
+            if previous_was_blank {
+                continue;
+            }
+            previous_was_blank = true;
+        } else {
+            if !previous_was_blank && previous_line == Some(line) {
+                continue;
+            }
+            previous_line = Some(line);
+            previous_was_blank = false;
+        }
+        lines.push(line);
+    }
+
+    while lines.last() == Some(&"") {
+        lines.pop();
+    }
+    let mut compacted = lines.join("\n");
+    if content.ends_with('\n') && !compacted.is_empty() {
+        compacted.push('\n');
+    }
+    compacted
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -262,9 +344,13 @@ pub struct EvaluationResult {
     pub task_success: bool,
 }
 
+pub const MIN_ACCEPTED_REDUCTION_PERCENT: f64 = 15.0;
+
 impl EvaluationResult {
     pub fn accepted(&self) -> bool {
-        self.task_success && self.estimated_tokens_saved > 0
+        self.task_success
+            && self.estimated_tokens_saved > 0
+            && self.reduction_percent >= MIN_ACCEPTED_REDUCTION_PERCENT
     }
 }
 
@@ -295,7 +381,8 @@ pub fn evaluate(
 #[cfg(test)]
 mod tests {
     use super::{
-        ContextItem, ContextKind, ContextPackage, DeterministicPruner, PruneStatus, evaluate,
+        ConsecutiveOutputCompactor, ContextItem, ContextKind, ContextPackage, DeterministicPruner,
+        PruneStatus, evaluate,
     };
 
     fn sample_package() -> ContextPackage {
@@ -358,6 +445,64 @@ mod tests {
     }
 
     #[test]
+    fn output_compactor_removes_repeated_unprotected_output_lines() {
+        let input = ContextPackage::new([
+            ContextItem::new(
+                "instructions",
+                ContextKind::Instruction,
+                "Keep this instruction exactly as written.",
+                true,
+            ),
+            ContextItem::new(
+                "build-output",
+                ContextKind::CommandOutput,
+                "compile\ncompile\nwarning\n\n\n",
+                false,
+            ),
+        ]);
+
+        let result = ConsecutiveOutputCompactor.apply(&input);
+
+        assert_eq!(result.report.saver_name, "consecutive-output-compactor");
+        assert_eq!(result.report.transformed_item_ids, ["build-output"]);
+        assert_eq!(result.package.items[1].content, "compile\nwarning\n");
+        assert_eq!(
+            result.report.measurement,
+            super::MeasurementStatus::Estimated
+        );
+    }
+
+    #[test]
+    fn output_compactor_has_positive_paired_fixture_savings() {
+        let baseline = ContextPackage::new([
+            ContextItem::new(
+                "instructions",
+                ContextKind::Instruction,
+                "Preserve the build result and report warnings.",
+                true,
+            ),
+            ContextItem::new(
+                "build-output",
+                ContextKind::CommandOutput,
+                "compile\ncompile\ncompile\nwarning: unused import\nwarning: unused import\n",
+                false,
+            ),
+        ]);
+        let deterministic = DeterministicPruner::new(baseline.estimated_tokens()).apply(&baseline);
+        let compacted = ConsecutiveOutputCompactor.apply(&baseline);
+        let deterministic_evaluation = evaluate(&baseline, &deterministic.package, true);
+        let compacted_evaluation = evaluate(&baseline, &compacted.package, true);
+
+        assert_eq!(deterministic_evaluation.estimated_tokens_saved, 0);
+        assert!(compacted_evaluation.estimated_tokens_saved > 0);
+        assert!(compacted_evaluation.accepted());
+        assert_eq!(
+            compacted.report.measurement,
+            super::MeasurementStatus::Estimated
+        );
+    }
+
+    #[test]
     fn evaluation_requires_savings_and_task_success() {
         let baseline = sample_package();
         let transformed = DeterministicPruner::new(20).apply(&baseline).package;
@@ -367,5 +512,18 @@ mod tests {
         assert!(successful.accepted());
         assert!(!unsuccessful.accepted());
         assert!(successful.reduction_percent > 0.0);
+    }
+
+    #[test]
+    fn evaluation_rejects_reduction_below_v1_threshold() {
+        let result = super::EvaluationResult {
+            baseline_estimated_tokens: 100,
+            transformed_estimated_tokens: 90,
+            estimated_tokens_saved: 10,
+            reduction_percent: 10.0,
+            task_success: true,
+        };
+
+        assert!(!result.accepted());
     }
 }

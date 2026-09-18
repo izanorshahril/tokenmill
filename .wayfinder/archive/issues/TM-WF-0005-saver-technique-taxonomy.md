@@ -20,7 +20,7 @@ Create a taxonomy that distinguishes an MVP candidate from a later experiment. F
 
 ## Research asset
 
-[Research: Build an evidence-backed saver and steering taxonomy](../research/TM-WF-0005-saver-technique-taxonomy.md)
+[Research: Build an evidence-backed saver and steering taxonomy](../../research/TM-WF-0005-saver-technique-taxonomy.md)
 
 ## Resolution
 
@@ -28,4 +28,4 @@ The strongest local-first V1 candidates are deterministic command-output reducti
 
 Routing is a control-plane concern, not a compression method. Honey and Graphify remain unresolved names and are not requirements until exact primary sources are supplied.
 
-Evidence: [research asset](../research/TM-WF-0005-saver-technique-taxonomy.md)
+Evidence: [Build an evidence-backed saver and steering taxonomy](../../research/TM-WF-0005-saver-technique-taxonomy.md)

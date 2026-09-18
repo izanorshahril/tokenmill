@@ -1,6 +1,6 @@
 # Research: Establish reference behavior from 9router and Headroom
 
-Ticket: [Establish reference behavior from 9router and Headroom](../issues/TM-WF-0003-reference-architecture-evidence.md)
+Ticket: [Establish reference behavior from 9router and Headroom](../archive/issues/TM-WF-0003-reference-architecture-evidence.md)
 
 ## Findings
 

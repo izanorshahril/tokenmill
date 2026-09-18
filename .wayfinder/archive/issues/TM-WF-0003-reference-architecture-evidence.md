@@ -20,7 +20,7 @@ Inspect the referenced repositories and their primary documentation/source. Sepa
 
 ## Research asset
 
-[Research: Establish reference behavior from 9router and Headroom](../research/TM-WF-0003-reference-architecture-evidence.md)
+[Research: Establish reference behavior from 9router and Headroom](../../research/TM-WF-0003-reference-architecture-evidence.md)
 
 ## Resolution
 
@@ -28,4 +28,4 @@ Tokenmill should separate routing, provider fallback, and authentication from co
 
 V1 observability must distinguish exact usage, estimates, counterfactual savings, and missing data. V1 privacy defaults should be stricter than either reference: no external telemetry and no full-content logging by default.
 
-Evidence: [research asset](../research/TM-WF-0003-reference-architecture-evidence.md)
+Evidence: [Establish reference behavior from 9router and Headroom](../../research/TM-WF-0003-reference-architecture-evidence.md)

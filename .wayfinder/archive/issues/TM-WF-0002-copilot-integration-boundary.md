@@ -20,7 +20,7 @@ Use first-party GitHub, GitHub Copilot, VS Code, and ACP documentation or source
 
 ## Research asset
 
-[Research: Verify GitHub Copilot integration and model-picker boundary](../research/TM-WF-0002-copilot-integration-boundary.md)
+[Research: Verify GitHub Copilot integration and model-picker boundary](../../research/TM-WF-0002-copilot-integration-boundary.md)
 
 ## Resolution
 
@@ -28,4 +28,4 @@ Tokenmill must not assume that it can inject a provider into GitHub Copilot's pr
 
 Strict mode requires a verified supported path, known transformed context, route identity, lifecycle evidence, and provider-supplied usage where available. Compatible mode may use Copilot CLI or ACP-compatible paths, but missing usage is reported as unmeasured rather than zero.
 
-Evidence: [research asset](../research/TM-WF-0002-copilot-integration-boundary.md)
+Evidence: [Verify GitHub Copilot integration and model-picker boundary](../../research/TM-WF-0002-copilot-integration-boundary.md)

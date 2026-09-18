@@ -3,7 +3,7 @@
 Tokenmill is a local-first Rust project for measuring and reducing context sent through GitHub Copilot workflows.
 
 This repository currently contains a provisional scaffold, not a Copilot interceptor or production router.
-The implementation follows the open wayfinding map in `.wayfinder/issues/` and does not claim that GitHub Copilot native model-picker routing is available.
+The completed V1 implementation is recorded in the archived map under `.wayfinder/archive/issues/` and does not claim that GitHub Copilot native model-picker routing is available.
 
 ## Workspace
 
@@ -12,7 +12,10 @@ crates/
   tokenmill-core/    Protocol-neutral context model, deterministic saver, and evaluation primitives
   tokenmill-acp/     ACP boundary model, replay harness, and stdio process client
   tokenmill-cli/     Offline CLI, replay commands, and local TUI
-.wayfinder/          Local planning map, tickets, and research assets
+.wayfinder/          Archived V1 implementation record, tickets, and research assets
+  archive/issues/    Closed specification, implementation, and decision tickets
+  research/          Redacted provider and live verification evidence
+  TRACKER.md         Local Wayfinder tracker rules
 CONTEXT.md           Domain glossary
 ```
 
@@ -30,6 +33,7 @@ cargo run -p tokenmill-cli -- acp-context-prompt <github-copilot-acp-executable>
 cargo run -p tokenmill-cli -- acp-paired-context-prompt <github-copilot-acp-executable> <workspace> <context.json> <max-tokens> [--mode strict|compatible] [--task-success pass|fail|unknown] [--report <paired-observation.jsonl>] [--history <evaluation-history.jsonl>]
 cargo run -p tokenmill-cli -- eval-history <evaluation-history.jsonl>
 cargo run -p tokenmill-cli -- tui <evaluation-history.jsonl>
+cargo run -p tokenmill-cli -- tui docs/fixtures/visual-evidence-history.jsonl --once
 cargo fmt --all -- --check
 ```
 
@@ -51,12 +55,13 @@ Pass `--history` to append the redacted paired result to a local JSONL history f
 Use `eval-history <path>` to summarize accepted, rejected, and unknown runs together with estimated savings and average reduction.
 Use `tui <path>` to open the first Tokenmill user interface: a local ANSI terminal dashboard over the same redacted history.
 The TUI supports `r` to refresh, `h` for controls, and `q` to quit; add `--once` for a non-interactive render.
+The redacted visual evidence fixture demonstrates accepted, rejected, unknown, and unverified states without raw content.
 History parsing is strict: malformed, unrelated, or unsupported-schema lines fail instead of being silently counted.
 Permission requests are cancelled by default in the non-interactive CLI.
 On Windows, pass the executable used by GitHub Copilot CLI's ACP mode, not the Microsoft Copilot executable, shell, PowerShell, or a batch wrapper installed on `PATH`.
 Do not infer product identity from a filename such as `copilot.exe`.
 For GitHub Copilot CLI versions that report the generic ACP name `Copilot`, strict verification also requires a GitHub-specific executable path such as the GitHub Copilot SDK or GitHub CLI installation path.
-An explicit negotiated identity of `GitHub Copilot` or `GitHub Copilot CLI` is accepted independently of the path.
+An explicit negotiated identity of `GitHub Copilot` or `GitHub Copilot CLI` is accepted when the executable path is not clearly identified as Microsoft Copilot.
 The live client is an ACP prompt client, not a Copilot context interceptor.
 
 ## Provisional boundary
@@ -65,8 +70,9 @@ The live client is an ACP prompt client, not a Copilot context interceptor.
 `tokenmill-acp` translates ACP-shaped requests into that boundary and reports structured observations.
 Future Copilot, router, desktop, web, and tray integrations must adapt into this boundary rather than change the domain model.
 
-The V1 workflow and [core/adapter boundary](.wayfinder/issues/TM-WF-0007-core-adapter-boundary.md) are now decided in [the wayfinding map](.wayfinder/issues/TM-WF-0001-tokenmill-mvp-spec-map.md).
-The V1 control plane is a foreground CLI/TUI; the ACP adapter and replay harness are the next implementation slice.
+The settled V1 workflow and [Define the Tokenmill core and adapter boundary](.wayfinder/archive/issues/TM-WF-0007-core-adapter-boundary.md) are recorded in the [Tokenmill MVP product and technical specification map](.wayfinder/archive/issues/TM-WF-0001-tokenmill-mvp-spec-map.md).
+Completed V1 implementation decisions and evidence are recorded in the [Tokenmill V1 implementation and visual evidence map](.wayfinder/archive/issues/TM-WF-0012-tokenmill-v1-implementation-map.md).
+The V1 control plane is a foreground CLI/TUI, with the ACP adapter and replay harness implemented as the first integration slice.
 Desktop, web, and tray surfaces remain deferred, and GitHub Copilot interception remains explicitly unclaimed.
 
 V1 observation storage is local and user-controlled.

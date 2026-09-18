@@ -20,7 +20,7 @@ Use official Rust, Cargo, target-toolchain, Zig, and relevant GUI framework docu
 
 ## Research asset
 
-[Research: Choose the Rust toolchain and deployment baseline](../research/TM-WF-0004-rust-toolchain-and-deployment-matrix.md)
+[Research: Choose the Rust toolchain and deployment baseline](../../research/TM-WF-0004-rust-toolchain-and-deployment-matrix.md)
 
 ## Resolution
 
@@ -28,4 +28,4 @@ Use stable GNU Rust for the core and CLI V1 profile, with a pinned toolchain fil
 
 Do not claim one Windows binary or GNU desktop parity until both profiles are tested. The current scaffold follows the GNU core/CLI path.
 
-Evidence: [research asset](../research/TM-WF-0004-rust-toolchain-and-deployment-matrix.md)
+Evidence: [Choose the Rust toolchain and deployment baseline](../../research/TM-WF-0004-rust-toolchain-and-deployment-matrix.md)

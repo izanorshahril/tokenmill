@@ -691,6 +691,7 @@ fn unchanged_result(context: &ContextPackage, measurement: MeasurementStatus) ->
             before_estimated_tokens: estimated_tokens,
             after_estimated_tokens: estimated_tokens,
             dropped_item_ids: Vec::new(),
+            transformed_item_ids: Vec::new(),
             status: PruneStatus::Unchanged,
             measurement,
         },
@@ -786,6 +787,14 @@ pub struct ReplayResult {
     pub transformed_context: ContextPackage,
 }
 
+impl ReplayResult {
+    pub fn accepted(&self) -> bool {
+        self.evaluation.accepted()
+            && self.observation.route_status == RouteStatus::Verified
+            && self.observation.outcome == ObservationOutcome::Completed
+    }
+}
+
 pub struct ReplayHarness {
     adapter: AcpAdapter,
 }
@@ -865,7 +874,7 @@ mod tests {
 
         assert_eq!(result.observation.outcome, ObservationOutcome::Completed);
         assert_eq!(result.observation.route_status, RouteStatus::Unverified);
-        assert!(result.evaluation.accepted());
+        assert!(!result.accepted());
     }
 
     #[test]

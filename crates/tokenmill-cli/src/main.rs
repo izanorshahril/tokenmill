@@ -10,9 +10,12 @@ use tokenmill_acp::{
     ReplayHarness,
 };
 use tokenmill_core::{
-    ContextItem, ContextKind, ContextPackage, DeterministicPruner, IntegrationMode, RouteStatus,
-    RunPolicy, evaluate,
+    ContextItem, ContextKind, ContextPackage, DeterministicPruner, IntegrationMode,
+    MIN_ACCEPTED_REDUCTION_PERCENT, RouteStatus, RunPolicy, evaluate,
 };
+
+mod view;
+use view::{EvaluationHistorySummary, RedactedRunView, ReportedContextUsage, TaskEvidence};
 
 fn main() {
     match std::env::args().nth(1).as_deref() {
@@ -64,8 +67,17 @@ fn run_acp_prompt(mut arguments: impl Iterator<Item = String>) {
             std::process::exit(1);
         }
     };
-    if let Err(error) = process.initialize() {
-        eprintln!("ACP initialize failed: {error}");
+    let initialization = match process.initialize() {
+        Ok(initialization) => initialization,
+        Err(error) => {
+            eprintln!("ACP initialize failed: {error}");
+            std::process::exit(1);
+        }
+    };
+    if route_status_for_agent(Path::new(&program), initialization.agent_name.as_deref())
+        != RouteStatus::Verified
+    {
+        eprintln!("ACP prompt rejected: executable is not a verified GitHub Copilot route");
         std::process::exit(1);
     }
     let session_id = match process.new_session(&cwd) {
@@ -151,10 +163,11 @@ fn run_acp_context_prompt(mut arguments: impl Iterator<Item = String>) {
             std::process::exit(1);
         }
     };
+    let route_status =
+        route_status_for_agent(Path::new(&program), initialization.agent_name.as_deref());
     let mut request = AcpRequest::new("live-context", context);
     request.provider = initialization.agent_name.clone();
-    request.route_status =
-        route_status_for_agent(Path::new(&program), initialization.agent_name.as_deref());
+    request.route_status = route_status;
     let transformed = AcpAdapter::new(options.policy, max_estimated_tokens).process(request);
     let Some(transformed_context) = transformed.transformed_context else {
         eprintln!("context saver rejected the run: {:?}", transformed.failure);
@@ -259,9 +272,9 @@ fn run_acp_paired_context_prompt(mut arguments: impl Iterator<Item = String>) {
             std::process::exit(1);
         }
     };
-    let provider = initialization.agent_name.clone();
     let route_status =
         route_status_for_agent(Path::new(&program), initialization.agent_name.as_deref());
+    let provider = initialization.agent_name.clone();
     let saver_off = match run_live_context_variant(
         &mut process,
         &cwd,
@@ -301,7 +314,6 @@ fn run_acp_paired_context_prompt(mut arguments: impl Iterator<Item = String>) {
             std::process::exit(1);
         }
     };
-
     let estimated_tokens_saved = saver_off
         .observation
         .after_estimated_tokens
@@ -311,9 +323,13 @@ fn run_acp_paired_context_prompt(mut arguments: impl Iterator<Item = String>) {
     } else {
         estimated_tokens_saved as f64 / saver_off.observation.after_estimated_tokens as f64 * 100.0
     };
-    let accepted = options
-        .task_success
-        .map(|task_success| task_success && estimated_tokens_saved > 0);
+    let accepted = paired_evaluation_accepted(
+        options.task_success,
+        estimated_tokens_saved,
+        reduction_percent,
+        &saver_off.observation,
+        &saver_on.observation,
+    );
     println!("Tokenmill paired live context evaluation");
     println!("task success: {}", task_success_label(options.task_success));
     println!(
@@ -447,11 +463,14 @@ fn run_tui(mut arguments: impl Iterator<Item = String>) {
 }
 
 fn render_tui_dashboard(path: &Path, summary: &EvaluationHistorySummary) -> String {
-    let accepted_rate = if summary.run_count == 0 {
-        0.0
-    } else {
-        summary.accepted_count as f64 / summary.run_count as f64 * 100.0
-    };
+    let latest_run = summary
+        .latest_run
+        .as_ref()
+        .map(render_latest_run)
+        .unwrap_or_else(|| {
+            "Latest run evidence\n-------------------\nNo paired run evidence is available.\n"
+                .to_owned()
+        });
     format!(
         "Tokenmill | GitHub Copilot context savings\n\
 ================================================\n\
@@ -464,6 +483,7 @@ Unknown          {:>10}\n\
 Acceptance rate  {:>9.1}%\n\
 Tokens saved     {:>10}\n\
 Avg reduction    {:>9.1}%\n\n\
+{}\n\
 The dashboard never reads or displays raw prompts, source, tool output,\n\
 or ACP update bodies.\n",
         path.display(),
@@ -471,9 +491,72 @@ or ACP update bodies.\n",
         summary.accepted_count,
         summary.rejected_count,
         summary.unknown_count,
-        accepted_rate,
+        summary.acceptance_rate_percent(),
         summary.estimated_tokens_saved,
         summary.average_reduction_percent,
+        latest_run,
+    )
+}
+
+fn render_latest_run(run: &RedactedRunView) -> String {
+    let saver = run.saver_name.as_deref().unwrap_or("none");
+    let failure = run.failure_reason.as_deref().unwrap_or("none");
+    format!(
+        "Latest run evidence\n\
+-------------------\n\
+Route             {}\n\
+Mode              {}\n\
+Saver             {}\n\
+Outcome           {}\n\
+Measurement       {}\n\
+Task evidence     {}\n\
+Task success      {}\n\
+Accepted          {}\n\
+Estimated tokens  {} -> {}\n\
+Estimated saved   {} ({:.1}%)\n\
+ACP usage         {}\n\
+Failure           {}\n",
+        status_label(route_status_label(run.route_status)),
+        status_label(integration_mode_label(run.mode)),
+        saver,
+        status_label(observation_outcome_label(run.outcome)),
+        status_label(measurement_status_label(run.measurement)),
+        status_label(task_evidence_label(run.task_evidence)),
+        status_label(task_success_label(run.task_success)),
+        status_label(accepted_label(run.accepted)),
+        run.before_estimated_tokens,
+        run.after_estimated_tokens,
+        run.estimated_tokens_saved,
+        run.reduction_percent,
+        reported_context_usage_label(run.reported_context_usage.as_ref()),
+        failure,
+    )
+}
+
+fn status_label(value: &str) -> String {
+    value.to_ascii_uppercase()
+}
+
+fn task_evidence_label(evidence: TaskEvidence) -> &'static str {
+    match evidence {
+        TaskEvidence::Manual => "manual",
+        TaskEvidence::Unknown => "unknown",
+    }
+}
+
+fn reported_context_usage_label(usage: Option<&ReportedContextUsage>) -> String {
+    let Some(usage) = usage else {
+        return "not reported".to_owned();
+    };
+    let used = usage
+        .latest_used
+        .map_or_else(|| "unknown".to_owned(), |value| value.to_string());
+    let size = usage
+        .latest_size
+        .map_or_else(|| "unknown".to_owned(), |value| value.to_string());
+    format!(
+        "{} update(s), {used}/{size} (agent-reported window; not billing tokens)",
+        usage.update_count
     )
 }
 
@@ -583,6 +666,9 @@ fn parse_context_kind(kind_name: &str) -> Option<ContextKind> {
 }
 
 fn route_status_for_agent(program: &Path, agent_name: Option<&str>) -> RouteStatus {
+    if microsoft_copilot_path_marker(program) {
+        return RouteStatus::Unverified;
+    }
     let explicit_github_identity = agent_name.is_some_and(|name| {
         matches!(
             name.trim().to_ascii_lowercase().as_str(),
@@ -597,6 +683,14 @@ fn route_status_for_agent(program: &Path, agent_name: Option<&str>) -> RouteStat
     } else {
         RouteStatus::Unverified
     }
+}
+
+fn microsoft_copilot_path_marker(program: &Path) -> bool {
+    let normalized = program
+        .to_string_lossy()
+        .replace('\\', "/")
+        .to_ascii_lowercase();
+    normalized.contains("/microsoft/") || normalized.contains("microsoft-copilot")
 }
 
 fn github_copilot_path_marker(program: &Path) -> bool {
@@ -625,16 +719,6 @@ struct PairedContextOptions {
     report_path: Option<PathBuf>,
     history_path: Option<PathBuf>,
     task_success: Option<bool>,
-}
-
-#[derive(Debug, PartialEq)]
-struct EvaluationHistorySummary {
-    run_count: usize,
-    accepted_count: usize,
-    rejected_count: usize,
-    unknown_count: usize,
-    estimated_tokens_saved: usize,
-    average_reduction_percent: f64,
 }
 
 struct LiveVariant {
@@ -764,6 +848,14 @@ fn task_success_label(task_success: Option<bool>) -> &'static str {
     }
 }
 
+fn task_success_source_label(task_success: Option<bool>) -> &'static str {
+    if task_success.is_some() {
+        "manual"
+    } else {
+        "unknown"
+    }
+}
+
 fn accepted_label(accepted: Option<bool>) -> &'static str {
     match accepted {
         Some(true) => "true",
@@ -797,6 +889,7 @@ fn write_observation_report(
             "after_estimated_tokens": observation.after_estimated_tokens,
             "measurement": measurement_status_label(observation.measurement),
             "latency_millis": observation.latency_millis,
+            "latency_scope": "adapter-local",
             "failure_reason": observation.failure_reason,
             "task_success": observation.task_success,
             "outcome": observation_outcome_label(observation.outcome),
@@ -855,7 +948,13 @@ fn paired_observation_report(
     } else {
         estimated_tokens_saved as f64 / baseline_tokens as f64 * 100.0
     };
-    let accepted = task_success.map(|success| success && estimated_tokens_saved > 0);
+    let accepted = paired_evaluation_accepted(
+        task_success,
+        estimated_tokens_saved,
+        reduction_percent,
+        &saver_off.observation,
+        &saver_on.observation,
+    );
     let report = json!({
         "schema_version": 1,
         "report_type": "paired_live_evaluation",
@@ -864,6 +963,7 @@ fn paired_observation_report(
             .map_err(|error| error.to_string())?
             .as_secs(),
         "task_success": task_success,
+        "task_success_source": task_success_source_label(task_success),
         "accepted": accepted,
         "comparison": {
             "baseline": "saver-off",
@@ -881,18 +981,28 @@ fn paired_observation_report(
     Ok(report)
 }
 
+fn paired_evaluation_accepted(
+    task_success: Option<bool>,
+    estimated_tokens_saved: usize,
+    reduction_percent: f64,
+    saver_off: &tokenmill_core::Observation,
+    saver_on: &tokenmill_core::Observation,
+) -> Option<bool> {
+    task_success.map(|success| {
+        success
+            && estimated_tokens_saved > 0
+            && reduction_percent >= MIN_ACCEPTED_REDUCTION_PERCENT
+            && saver_off.route_status == RouteStatus::Verified
+            && saver_on.route_status == RouteStatus::Verified
+            && saver_off.outcome == tokenmill_core::ObservationOutcome::Completed
+            && saver_on.outcome == tokenmill_core::ObservationOutcome::Completed
+    })
+}
+
 fn summarize_evaluation_history(path: &Path) -> Result<EvaluationHistorySummary, String> {
     let file = File::open(path).map_err(|error| error.to_string())?;
     let reader = BufReader::new(file);
-    let mut summary = EvaluationHistorySummary {
-        run_count: 0,
-        accepted_count: 0,
-        rejected_count: 0,
-        unknown_count: 0,
-        estimated_tokens_saved: 0,
-        average_reduction_percent: 0.0,
-    };
-    let mut reduction_total = 0.0;
+    let mut summary = EvaluationHistorySummary::default();
 
     for (line_index, line) in reader.lines().enumerate() {
         let line_number = line_index + 1;
@@ -908,48 +1018,7 @@ fn summarize_evaluation_history(path: &Path) -> Result<EvaluationHistorySummary,
         if report.get("report_type").and_then(Value::as_str) != Some("paired_live_evaluation") {
             return Err(format!("line {line_number}: not a paired live evaluation"));
         }
-
-        let accepted = report
-            .get("accepted")
-            .ok_or_else(|| format!("line {line_number}: missing accepted"))?;
-        match accepted.as_bool() {
-            Some(true) => summary.accepted_count += 1,
-            Some(false) => summary.rejected_count += 1,
-            None if accepted.is_null() => summary.unknown_count += 1,
-            None => {
-                return Err(format!(
-                    "line {line_number}: accepted must be boolean or null"
-                ));
-            }
-        }
-
-        let comparison = report
-            .get("comparison")
-            .and_then(Value::as_object)
-            .ok_or_else(|| format!("line {line_number}: missing comparison"))?;
-        let saved = comparison
-            .get("estimated_tokens_saved")
-            .and_then(Value::as_u64)
-            .ok_or_else(|| format!("line {line_number}: invalid estimated_tokens_saved"))?;
-        summary.estimated_tokens_saved = summary
-            .estimated_tokens_saved
-            .checked_add(
-                usize::try_from(saved)
-                    .map_err(|_| format!("line {line_number}: token count is too large"))?,
-            )
-            .ok_or_else(|| format!("line {line_number}: token total is too large"))?;
-
-        let reduction = comparison
-            .get("reduction_percent")
-            .and_then(Value::as_f64)
-            .filter(|value| value.is_finite())
-            .ok_or_else(|| format!("line {line_number}: invalid reduction_percent"))?;
-        reduction_total += reduction;
-        summary.run_count += 1;
-    }
-
-    if summary.run_count > 0 {
-        summary.average_reduction_percent = reduction_total / summary.run_count as f64;
+        summary.record(RedactedRunView::from_report(&report, line_number)?);
     }
     Ok(summary)
 }
@@ -971,6 +1040,7 @@ fn live_variant_json(variant: &LiveVariant) -> Value {
             "after_estimated_tokens": variant.observation.after_estimated_tokens,
             "measurement": measurement_status_label(variant.observation.measurement),
             "latency_millis": variant.observation.latency_millis,
+            "latency_scope": "adapter-local",
             "failure_reason": variant.observation.failure_reason,
             "task_success": variant.observation.task_success,
             "outcome": observation_outcome_label(variant.observation.outcome),
@@ -1126,7 +1196,7 @@ fn run_replay() {
         "compatible reduction: {:.1}%",
         compatible.evaluation.reduction_percent
     );
-    println!("compatible accepted: {}", compatible.evaluation.accepted());
+    println!("compatible accepted: {}", compatible.accepted());
     println!("strict outcome: {:?}", strict.observation.outcome);
     println!("strict failure: {:?}", strict.failure);
 }
@@ -1214,13 +1284,16 @@ mod tests {
     use std::path::{Path, PathBuf};
 
     use super::{
-        AcpUsageSummary, EvaluationHistorySummary, LiveVariant, append_paired_observation_report,
-        fs, parse_context_package, parse_context_prompt_options, parse_paired_context_options,
+        AcpUsageSummary, EvaluationHistorySummary, LiveVariant, RedactedRunView,
+        ReportedContextUsage, TaskEvidence, append_paired_observation_report, fs,
+        parse_context_package, parse_context_prompt_options, parse_paired_context_options,
         render_tui_dashboard, route_status_for_agent, summarize_evaluation_history,
         write_observation_report, write_paired_observation_report,
     };
     use serde_json::Value;
-    use tokenmill_core::{ContextKind, IntegrationMode, RouteStatus};
+    use tokenmill_core::{
+        ContextKind, IntegrationMode, MeasurementStatus, ObservationOutcome, RouteStatus,
+    };
 
     #[test]
     fn verifies_only_the_github_copilot_agent_identity() {
@@ -1230,11 +1303,11 @@ mod tests {
 
         assert_eq!(
             route_status_for_agent(microsoft_copilot_path, Some("GitHub Copilot")),
-            RouteStatus::Verified
+            RouteStatus::Unverified
         );
         assert_eq!(
             route_status_for_agent(microsoft_copilot_path, Some("GitHub Copilot CLI")),
-            RouteStatus::Verified
+            RouteStatus::Unverified
         );
         assert_eq!(
             route_status_for_agent(github_copilot_path, Some("Copilot")),
@@ -1437,6 +1510,7 @@ mod tests {
 
         assert_eq!(report["report_type"], "paired_live_evaluation");
         assert_eq!(report["task_success"], true);
+        assert_eq!(report["task_success_source"], "manual");
         assert_eq!(report["accepted"], true);
         assert_eq!(report["comparison"]["estimated_tokens_saved"], 10);
         assert_eq!(report["variants"][1]["usage"]["latest_used"], 10);
@@ -1457,6 +1531,10 @@ mod tests {
         assert_eq!(summary.unknown_count, 1);
         assert_eq!(summary.estimated_tokens_saved, 20);
         assert_eq!(summary.average_reduction_percent, 50.0);
+        assert_eq!(
+            summary.latest_run.as_ref().unwrap().task_evidence,
+            TaskEvidence::Unknown
+        );
     }
 
     #[test]
@@ -1475,15 +1553,79 @@ mod tests {
     }
 
     #[test]
+    fn visual_fixture_covers_required_evidence_states() {
+        let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../docs/fixtures/visual-evidence-history.jsonl");
+        let views = fs::read_to_string(path)
+            .expect("visual evidence fixture should read")
+            .lines()
+            .enumerate()
+            .map(|(index, line)| {
+                let report: Value = serde_json::from_str(line).expect("fixture line should parse");
+                RedactedRunView::from_report(&report, index + 1)
+                    .expect("fixture line should satisfy the redacted view contract")
+            })
+            .collect::<Vec<_>>();
+
+        assert!(views.iter().any(|view| view.accepted == Some(true)));
+        assert!(views.iter().any(|view| view.accepted == Some(false)));
+        assert!(
+            views
+                .iter()
+                .any(|view| view.task_evidence == TaskEvidence::Unknown)
+        );
+        assert!(
+            views
+                .iter()
+                .any(|view| view.route_status == RouteStatus::Unverified)
+        );
+        assert!(
+            views
+                .iter()
+                .any(|view| view.measurement == MeasurementStatus::Unmeasured)
+        );
+        assert!(
+            views
+                .iter()
+                .any(|view| view.outcome == ObservationOutcome::Rejected)
+        );
+        assert!(
+            views
+                .iter()
+                .any(|view| view.outcome == ObservationOutcome::Failed)
+        );
+    }
+
+    #[test]
     fn tui_dashboard_renders_redacted_history_metrics() {
-        let summary = EvaluationHistorySummary {
-            run_count: 4,
-            accepted_count: 2,
-            rejected_count: 1,
-            unknown_count: 1,
-            estimated_tokens_saved: 120,
-            average_reduction_percent: 18.5,
-        };
+        let mut summary = EvaluationHistorySummary::default();
+        for (accepted, task_success, saved, reduction) in [
+            (Some(true), Some(true), 60, 18.0),
+            (Some(true), Some(true), 40, 20.0),
+            (Some(false), Some(false), 20, 17.0),
+            (None, None, 0, 19.0),
+        ] {
+            summary.record(RedactedRunView {
+                accepted,
+                task_success,
+                task_evidence: if task_success.is_some() {
+                    TaskEvidence::Manual
+                } else {
+                    TaskEvidence::Unknown
+                },
+                route_status: RouteStatus::Verified,
+                measurement: tokenmill_core::MeasurementStatus::Estimated,
+                outcome: tokenmill_core::ObservationOutcome::Completed,
+                mode: IntegrationMode::Strict,
+                saver_name: Some("deterministic-pruner".to_owned()),
+                before_estimated_tokens: 100,
+                after_estimated_tokens: 100 - saved,
+                estimated_tokens_saved: saved,
+                reduction_percent: reduction,
+                failure_reason: None,
+                reported_context_usage: None,
+            });
+        }
 
         let dashboard = render_tui_dashboard(Path::new("evaluation-history.jsonl"), &summary);
 
@@ -1494,7 +1636,44 @@ mod tests {
         assert!(dashboard.contains("50.0%"));
         assert!(dashboard.contains("Tokens saved"));
         assert!(dashboard.contains("120"));
+        assert!(dashboard.contains("Latest run evidence"));
+        assert!(dashboard.contains("Task evidence"));
         assert!(dashboard.contains("redacted local paired evaluations"));
         assert!(!dashboard.contains("raw prompt content"));
+    }
+
+    #[test]
+    fn tui_dashboard_distinguishes_unverified_unknown_and_reported_usage() {
+        let mut summary = EvaluationHistorySummary::default();
+        summary.record(RedactedRunView {
+            accepted: None,
+            task_success: None,
+            task_evidence: TaskEvidence::Unknown,
+            route_status: RouteStatus::Unverified,
+            measurement: tokenmill_core::MeasurementStatus::Unmeasured,
+            outcome: tokenmill_core::ObservationOutcome::Completed,
+            mode: IntegrationMode::Compatible,
+            saver_name: None,
+            before_estimated_tokens: 12,
+            after_estimated_tokens: 12,
+            estimated_tokens_saved: 0,
+            reduction_percent: 0.0,
+            failure_reason: None,
+            reported_context_usage: Some(ReportedContextUsage {
+                update_count: 1,
+                latest_used: Some(16_189),
+                latest_size: Some(272_000),
+            }),
+        });
+
+        let dashboard = render_tui_dashboard(Path::new("fixture.jsonl"), &summary);
+
+        assert!(dashboard.contains("Route             UNVERIFIED"));
+        assert!(dashboard.contains("Measurement       UNMEASURED"));
+        assert!(dashboard.contains("Task evidence     UNKNOWN"));
+        assert!(dashboard.contains("Outcome           COMPLETED"));
+        assert!(dashboard.contains("16189/272000"));
+        assert!(dashboard.contains("not billing tokens"));
+        assert!(dashboard.contains("Failure           none"));
     }
 }

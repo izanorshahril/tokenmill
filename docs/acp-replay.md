@@ -64,8 +64,16 @@ cargo run -p tokenmill-cli -- tui C:\path\to\evaluation-history.jsonl
 ```
 
 The dashboard shows run counts, explicit acceptance evidence, estimated tokens saved, and average reduction.
+Its latest-run evidence section also shows route identity, mode, saver, outcome, measurement confidence, task-success provenance, estimated before/after counts, failure reason, and optional agent-reported context-window usage.
+The usage line is explicitly labeled as non-billing data.
 Press `r` to refresh, `h` for controls, or `q` to quit.
 Use `--once` for a single non-interactive render.
+
+Use the committed redacted fixture to verify accepted, rejected, unknown, and unverified states without raw content:
+
+```powershell
+cargo run -p tokenmill-cli -- tui docs/fixtures/visual-evidence-history.jsonl --once
+```
 
 The context document is a JSON object with an `items` array.
 Each item contains `id`, `kind`, `content`, and `protected` fields.
@@ -88,7 +96,7 @@ Library callers can provide an explicit permission handler with `prompt_with_per
 The text prompt path sends the supplied text as an ACP text block.
 The context prompt path serializes only the caller-supplied JSON package after local pruning.
 Neither path intercepts or rewrites hidden Copilot repository context or proxies client-side tools.
-When `--report` is provided, the command writes one redacted JSONL observation containing counts, route and saver status, measurement confidence, latency, outcome, usage-update count, and latest reported context usage.
+When `--report` is provided, the command writes one redacted JSONL observation containing counts, route and saver status, measurement confidence, adapter-local transformation latency, outcome, usage-update count, and latest reported context usage.
 The report does not contain context items, prompts, source, or raw ACP updates.
 Use `--saver off` to preserve the supplied context while retaining an observation when possible.
 Use `--routing off` to bypass the Tokenmill adapter policy and mark the run as bypassed.
@@ -96,12 +104,13 @@ Use `--mode compatible` to allow explicitly labelled compatible behavior instead
 The paired live evaluation compares estimated context reduction and records each variant's redacted route, outcome, stop reason, update count, and usage summary.
 Use `--task-success pass|fail|unknown` to record explicit post-run evidence.
 The default is `unknown` because a live ACP response does not prove that the developer's task succeeded.
-The report marks the pair accepted only when task success is `pass` and the saver-on context is smaller than saver-off.
+The report marks a single pair accepted only when task success is `pass` and estimated reduction reaches the V1 15% threshold.
+The single-pair report does not claim the full corpus-level median, task-success-rate, critical-failure, or latency acceptance checks; those remain unmeasured until a corpus runner exists.
 The history file appends one redacted paired record per run and can be summarized without reading the original context package.
 History parsing rejects malformed, unrelated, or unsupported-schema records.
 The TUI reads only those redacted aggregate fields and does not display raw prompts, source, tool output, or ACP update bodies.
 The examples target GitHub Copilot CLI/ACP.
 Do not substitute a Microsoft Copilot executable merely because its filename contains `copilot.exe`.
 GitHub Copilot CLI versions that report the generic ACP name `Copilot` are verified only when the executable path contains a recognized GitHub distribution marker such as `github-copilot-sdk` or `GitHub CLI\copilot`.
-An explicit ACP identity of `GitHub Copilot` or `GitHub Copilot CLI` is accepted independently of the path.
+An explicit ACP identity of `GitHub Copilot` or `GitHub Copilot CLI` is accepted when the executable path is not clearly identified as Microsoft Copilot.
 The check reports authentication methods but intentionally does not automate terminal login.

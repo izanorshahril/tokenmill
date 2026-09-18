@@ -1,6 +1,6 @@
 # Research: Verify GitHub Copilot integration and model-picker boundary
 
-Ticket: [Verify GitHub Copilot integration and model-picker boundary](../issues/TM-WF-0002-copilot-integration-boundary.md)
+Ticket: [Verify GitHub Copilot integration and model-picker boundary](../archive/issues/TM-WF-0002-copilot-integration-boundary.md)
 
 ## Findings
 
