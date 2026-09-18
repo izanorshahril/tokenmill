@@ -1,0 +1,12 @@
+[package]
+name = "tokenmill-core"
+edition.workspace = true
+license.workspace = true
+version.workspace = true
+
+[lib]
+name = "tokenmill_core"
+path = "src/lib.rs"
+
+[lints]
+workspace = true

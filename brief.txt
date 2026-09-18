@@ -1,0 +1,25 @@
+we're to going to create a project like 9router & headroom:
+- https://github.com/decolua/9router
+- https://github.com/headroomlabs-ai/headroom
+
+focus is more on to token save on github copilot for now.
+later the project also maybe can be integrated to either one of my projects:
+- https://github.com/izanorshahril/farseer
+- https://github.com/izanorshahril/peon-py (to be reworked on rust)
+
+Project name: Tokenmill
+Stack: Rust
+
+GUI:
+- desktop
+- web
+- cli/tui
+- tray menu
+
+Feats:
+- usage monitor, dashboard, telemetry, observability
+- analytics (token cloud/graph/cluster, repomix, graphify, other zero-cost techniques)
+- saving techniques & skills (RTK, ml, ast, honey, caveman, ponytails, etcs)
+- user simple evals (with & without token saver based on toggled saver methods)
+- quick toggle on/off (routing/saver)
+- other useful feats from the reference projects.

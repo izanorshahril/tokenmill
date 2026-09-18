@@ -1,0 +1,16 @@
+[package]
+name = "tokenmill-acp"
+edition.workspace = true
+license.workspace = true
+version.workspace = true
+
+[lib]
+name = "tokenmill_acp"
+path = "src/lib.rs"
+
+[dependencies]
+serde_json = "=1.0.145"
+tokenmill-core = { path = "../tokenmill-core" }
+
+[lints]
+workspace = true
