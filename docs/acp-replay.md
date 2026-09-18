@@ -48,7 +48,13 @@ cargo run -p tokenmill-cli -- acp-context-prompt C:\path\to\copilot.exe C:\path\
 Run a paired live evaluation with the same context sent through saver-off and saver-on sessions:
 
 ```powershell
-cargo run -p tokenmill-cli -- acp-paired-context-prompt C:\path\to\copilot.exe C:\path\to\workspace C:\path\to\context.json 1200 --mode strict --task-success pass --report C:\path\to\paired-observation.jsonl
+cargo run -p tokenmill-cli -- acp-paired-context-prompt C:\path\to\copilot.exe C:\path\to\workspace C:\path\to\context.json 1200 --mode strict --task-success pass --report C:\path\to\paired-observation.jsonl --history C:\path\to\evaluation-history.jsonl
+```
+
+Summarize the redacted paired history with:
+
+```powershell
+cargo run -p tokenmill-cli -- eval-history C:\path\to\evaluation-history.jsonl
 ```
 
 The context document is a JSON object with an `items` array.
@@ -81,4 +87,6 @@ The paired live evaluation compares estimated context reduction and records each
 Use `--task-success pass|fail|unknown` to record explicit post-run evidence.
 The default is `unknown` because a live ACP response does not prove that the developer's task succeeded.
 The report marks the pair accepted only when task success is `pass` and the saver-on context is smaller than saver-off.
+The history file appends one redacted paired record per run and can be summarized without reading the original context package.
+History parsing rejects malformed, unrelated, or unsupported-schema records.
 The check reports authentication methods but intentionally does not automate terminal login.

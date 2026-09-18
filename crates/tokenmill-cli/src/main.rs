@@ -1,4 +1,5 @@
-use std::fs;
+use std::fs::{self, File, OpenOptions};
+use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -24,6 +25,7 @@ fn main() {
         Some("acp-paired-context-prompt") => {
             run_acp_paired_context_prompt(std::env::args().skip(2))
         }
+        Some("eval-history") => run_evaluation_history(std::env::args().skip(2)),
         Some("help") | Some("--help") | Some("-h") => print_help(),
         Some(command) => {
             eprintln!("Unknown command: {command}");
@@ -337,6 +339,48 @@ fn run_acp_paired_context_prompt(mut arguments: impl Iterator<Item = String>) {
         }
         println!("paired observation report: {}", report_path.display());
     }
+    if let Some(history_path) = options.history_path {
+        if let Err(error) = append_paired_observation_report(
+            &history_path,
+            &saver_off,
+            &saver_on,
+            options.task_success,
+        ) {
+            eprintln!("evaluation history failed: {error}");
+            std::process::exit(1);
+        }
+        println!("evaluation history: {}", history_path.display());
+    }
+}
+
+fn run_evaluation_history(mut arguments: impl Iterator<Item = String>) {
+    let Some(path) = arguments.next().map(PathBuf::from) else {
+        eprintln!("eval-history requires a history JSONL path");
+        print_help();
+        std::process::exit(2);
+    };
+    if let Some(unexpected) = arguments.next() {
+        eprintln!("eval-history received unexpected argument: {unexpected}");
+        print_help();
+        std::process::exit(2);
+    }
+    let summary = match summarize_evaluation_history(&path) {
+        Ok(summary) => summary,
+        Err(error) => {
+            eprintln!("evaluation history failed: {error}");
+            std::process::exit(1);
+        }
+    };
+    println!("Tokenmill evaluation history");
+    println!("runs: {}", summary.run_count);
+    println!("accepted: {}", summary.accepted_count);
+    println!("rejected: {}", summary.rejected_count);
+    println!("unknown: {}", summary.unknown_count);
+    println!("estimated tokens saved: {}", summary.estimated_tokens_saved);
+    println!(
+        "average reduction: {:.1}%",
+        summary.average_reduction_percent
+    );
 }
 
 fn run_live_context_variant(
@@ -462,7 +506,18 @@ struct ContextPromptOptions {
 struct PairedContextOptions {
     mode: IntegrationMode,
     report_path: Option<PathBuf>,
+    history_path: Option<PathBuf>,
     task_success: Option<bool>,
+}
+
+#[derive(Debug, PartialEq)]
+struct EvaluationHistorySummary {
+    run_count: usize,
+    accepted_count: usize,
+    rejected_count: usize,
+    unknown_count: usize,
+    estimated_tokens_saved: usize,
+    average_reduction_percent: f64,
 }
 
 struct LiveVariant {
@@ -518,6 +573,7 @@ fn parse_paired_context_options(
     let arguments = arguments.collect::<Vec<_>>();
     let mut mode = IntegrationMode::Strict;
     let mut report_path = None;
+    let mut history_path = None;
     let mut task_success = None;
     let mut index = 0;
 
@@ -539,6 +595,7 @@ fn parse_paired_context_options(
                 };
             }
             "--report" => report_path = Some(PathBuf::from(value)),
+            "--history" => history_path = Some(PathBuf::from(value)),
             "--task-success" => {
                 task_success = match value.as_str() {
                     "pass" => Some(true),
@@ -559,6 +616,7 @@ fn parse_paired_context_options(
     Ok(PairedContextOptions {
         mode,
         report_path,
+        history_path,
         task_success,
     })
 }
@@ -643,6 +701,35 @@ fn write_paired_observation_report(
     saver_on: &LiveVariant,
     task_success: Option<bool>,
 ) -> Result<(), String> {
+    let report = paired_observation_report(saver_off, saver_on, task_success)?;
+    let mut encoded = serde_json::to_string(&report).map_err(|error| error.to_string())?;
+    encoded.push('\n');
+    fs::write(path, encoded).map_err(|error| error.to_string())
+}
+
+fn append_paired_observation_report(
+    path: &Path,
+    saver_off: &LiveVariant,
+    saver_on: &LiveVariant,
+    task_success: Option<bool>,
+) -> Result<(), String> {
+    let report = paired_observation_report(saver_off, saver_on, task_success)?;
+    let mut encoded = serde_json::to_string(&report).map_err(|error| error.to_string())?;
+    encoded.push('\n');
+    let mut file = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)
+        .map_err(|error| error.to_string())?;
+    file.write_all(encoded.as_bytes())
+        .map_err(|error| error.to_string())
+}
+
+fn paired_observation_report(
+    saver_off: &LiveVariant,
+    saver_on: &LiveVariant,
+    task_success: Option<bool>,
+) -> Result<Value, String> {
     let baseline_tokens = saver_off.observation.after_estimated_tokens;
     let transformed_tokens = saver_on.observation.after_estimated_tokens;
     let estimated_tokens_saved = baseline_tokens.saturating_sub(transformed_tokens);
@@ -674,9 +761,80 @@ fn write_paired_observation_report(
             live_variant_json(saver_on),
         ],
     });
-    let mut encoded = serde_json::to_string(&report).map_err(|error| error.to_string())?;
-    encoded.push('\n');
-    fs::write(path, encoded).map_err(|error| error.to_string())
+    Ok(report)
+}
+
+fn summarize_evaluation_history(path: &Path) -> Result<EvaluationHistorySummary, String> {
+    let file = File::open(path).map_err(|error| error.to_string())?;
+    let reader = BufReader::new(file);
+    let mut summary = EvaluationHistorySummary {
+        run_count: 0,
+        accepted_count: 0,
+        rejected_count: 0,
+        unknown_count: 0,
+        estimated_tokens_saved: 0,
+        average_reduction_percent: 0.0,
+    };
+    let mut reduction_total = 0.0;
+
+    for (line_index, line) in reader.lines().enumerate() {
+        let line_number = line_index + 1;
+        let line = line.map_err(|error| format!("line {line_number}: {error}"))?;
+        if line.trim().is_empty() {
+            continue;
+        }
+        let report: Value = serde_json::from_str(&line)
+            .map_err(|error| format!("line {line_number}: invalid JSON: {error}"))?;
+        if report.get("schema_version").and_then(Value::as_u64) != Some(1) {
+            return Err(format!("line {line_number}: unsupported schema_version"));
+        }
+        if report.get("report_type").and_then(Value::as_str) != Some("paired_live_evaluation") {
+            return Err(format!("line {line_number}: not a paired live evaluation"));
+        }
+
+        let accepted = report
+            .get("accepted")
+            .ok_or_else(|| format!("line {line_number}: missing accepted"))?;
+        match accepted.as_bool() {
+            Some(true) => summary.accepted_count += 1,
+            Some(false) => summary.rejected_count += 1,
+            None if accepted.is_null() => summary.unknown_count += 1,
+            None => {
+                return Err(format!(
+                    "line {line_number}: accepted must be boolean or null"
+                ));
+            }
+        }
+
+        let comparison = report
+            .get("comparison")
+            .and_then(Value::as_object)
+            .ok_or_else(|| format!("line {line_number}: missing comparison"))?;
+        let saved = comparison
+            .get("estimated_tokens_saved")
+            .and_then(Value::as_u64)
+            .ok_or_else(|| format!("line {line_number}: invalid estimated_tokens_saved"))?;
+        summary.estimated_tokens_saved = summary
+            .estimated_tokens_saved
+            .checked_add(
+                usize::try_from(saved)
+                    .map_err(|_| format!("line {line_number}: token count is too large"))?,
+            )
+            .ok_or_else(|| format!("line {line_number}: token total is too large"))?;
+
+        let reduction = comparison
+            .get("reduction_percent")
+            .and_then(Value::as_f64)
+            .filter(|value| value.is_finite())
+            .ok_or_else(|| format!("line {line_number}: invalid reduction_percent"))?;
+        reduction_total += reduction;
+        summary.run_count += 1;
+    }
+
+    if summary.run_count > 0 {
+        summary.average_reduction_percent = reduction_total / summary.run_count as f64;
+    }
+    Ok(summary)
 }
 
 fn live_variant_json(variant: &LiveVariant) -> Value {
@@ -914,8 +1072,9 @@ fn print_help() {
         "  tokenmill acp-context-prompt <agent> <cwd> <context.json> <max-tokens> [--saver on|off] [--routing on|off] [--mode strict|compatible] [--report <path>]"
     );
     println!(
-        "  tokenmill acp-paired-context-prompt <agent> <cwd> <context.json> <max-tokens> [--mode strict|compatible] [--task-success pass|fail|unknown] [--report <path>]"
+        "  tokenmill acp-paired-context-prompt <agent> <cwd> <context.json> <max-tokens> [--mode strict|compatible] [--task-success pass|fail|unknown] [--report <path>] [--history <path>]"
     );
+    println!("  tokenmill eval-history <history.jsonl>  Summarize redacted paired evaluations");
     println!("  tokenmill help    Show this help");
 }
 
@@ -924,9 +1083,9 @@ mod tests {
     use std::path::PathBuf;
 
     use super::{
-        AcpUsageSummary, LiveVariant, fs, parse_context_package, parse_context_prompt_options,
-        parse_paired_context_options, route_status_for_agent, write_observation_report,
-        write_paired_observation_report,
+        AcpUsageSummary, LiveVariant, append_paired_observation_report, fs, parse_context_package,
+        parse_context_prompt_options, parse_paired_context_options, route_status_for_agent,
+        summarize_evaluation_history, write_observation_report, write_paired_observation_report,
     };
     use serde_json::Value;
     use tokenmill_core::{ContextKind, IntegrationMode, RouteStatus};
@@ -981,6 +1140,8 @@ mod tests {
                 "pass",
                 "--report",
                 "paired.jsonl",
+                "--history",
+                "history.jsonl",
             ]
             .into_iter()
             .map(str::to_owned),
@@ -989,6 +1150,7 @@ mod tests {
 
         assert_eq!(options.mode, IntegrationMode::Compatible);
         assert_eq!(options.report_path, Some(PathBuf::from("paired.jsonl")));
+        assert_eq!(options.history_path, Some(PathBuf::from("history.jsonl")));
         assert_eq!(options.task_success, Some(true));
 
         let defaults = parse_paired_context_options(std::iter::empty::<String>())
@@ -1128,5 +1290,36 @@ mod tests {
         assert_eq!(report["comparison"]["estimated_tokens_saved"], 10);
         assert_eq!(report["variants"][1]["usage"]["latest_used"], 10);
         assert!(report.get("content").is_none());
+
+        let history_path = std::env::temp_dir().join("tokenmill-paired-history-test.jsonl");
+        let _ = fs::remove_file(&history_path);
+        append_paired_observation_report(&history_path, &saver_off, &saver_on, Some(true))
+            .expect("history should append");
+        append_paired_observation_report(&history_path, &saver_off, &saver_on, None)
+            .expect("history should append");
+        let summary = summarize_evaluation_history(&history_path).expect("history should parse");
+        fs::remove_file(history_path).expect("history should be removed");
+
+        assert_eq!(summary.run_count, 2);
+        assert_eq!(summary.accepted_count, 1);
+        assert_eq!(summary.rejected_count, 0);
+        assert_eq!(summary.unknown_count, 1);
+        assert_eq!(summary.estimated_tokens_saved, 20);
+        assert_eq!(summary.average_reduction_percent, 50.0);
+    }
+
+    #[test]
+    fn evaluation_history_rejects_unrelated_records() {
+        let path = std::env::temp_dir().join("tokenmill-invalid-history-test.jsonl");
+        fs::write(
+            &path,
+            "{\"schema_version\":1,\"report_type\":\"observation\"}\n",
+        )
+        .expect("history should write");
+
+        let error = summarize_evaluation_history(&path).expect_err("unrelated record must fail");
+        fs::remove_file(path).expect("history should be removed");
+
+        assert!(error.contains("line 1: not a paired live evaluation"));
     }
 }
