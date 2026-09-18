@@ -306,8 +306,11 @@ fn run_acp_paired_context_prompt(mut arguments: impl Iterator<Item = String>) {
     } else {
         estimated_tokens_saved as f64 / saver_off.observation.after_estimated_tokens as f64 * 100.0
     };
+    let accepted = options
+        .task_success
+        .map(|task_success| task_success && estimated_tokens_saved > 0);
     println!("Tokenmill paired live context evaluation");
-    println!("task success: unmeasured");
+    println!("task success: {}", task_success_label(options.task_success));
     println!(
         "saver-off estimated tokens: {} -> {}",
         saver_off.observation.before_estimated_tokens, saver_off.observation.after_estimated_tokens
@@ -318,11 +321,17 @@ fn run_acp_paired_context_prompt(mut arguments: impl Iterator<Item = String>) {
     );
     println!("estimated tokens saved: {estimated_tokens_saved}");
     println!("reduction versus saver-off: {reduction_percent:.1}%");
+    println!("accepted: {}", accepted_label(accepted));
     print_live_variant_summary(&saver_off);
     print_live_variant_summary(&saver_on);
 
     if let Some(report_path) = options.report_path {
-        if let Err(error) = write_paired_observation_report(&report_path, &saver_off, &saver_on) {
+        if let Err(error) = write_paired_observation_report(
+            &report_path,
+            &saver_off,
+            &saver_on,
+            options.task_success,
+        ) {
             eprintln!("paired observation report failed: {error}");
             std::process::exit(1);
         }
@@ -453,6 +462,7 @@ struct ContextPromptOptions {
 struct PairedContextOptions {
     mode: IntegrationMode,
     report_path: Option<PathBuf>,
+    task_success: Option<bool>,
 }
 
 struct LiveVariant {
@@ -508,6 +518,7 @@ fn parse_paired_context_options(
     let arguments = arguments.collect::<Vec<_>>();
     let mut mode = IntegrationMode::Strict;
     let mut report_path = None;
+    let mut task_success = None;
     let mut index = 0;
 
     while index < arguments.len() {
@@ -528,12 +539,28 @@ fn parse_paired_context_options(
                 };
             }
             "--report" => report_path = Some(PathBuf::from(value)),
+            "--task-success" => {
+                task_success = match value.as_str() {
+                    "pass" => Some(true),
+                    "fail" => Some(false),
+                    "unknown" => None,
+                    _ => {
+                        return Err(format!(
+                            "{option} must be pass, fail, or unknown, got {value}"
+                        ));
+                    }
+                };
+            }
             _ => return Err(format!("unexpected argument: {option}")),
         }
         index += 2;
     }
 
-    Ok(PairedContextOptions { mode, report_path })
+    Ok(PairedContextOptions {
+        mode,
+        report_path,
+        task_success,
+    })
 }
 
 fn parse_toggle(option: &str, value: &str) -> Result<bool, String> {
@@ -551,6 +578,22 @@ fn print_usage_summary(summary: &AcpUsageSummary) {
         (Some(used), None) => println!("reported context usage: {used}/unknown"),
         (None, Some(size)) => println!("reported context usage: unknown/{size}"),
         (None, None) => {}
+    }
+}
+
+fn task_success_label(task_success: Option<bool>) -> &'static str {
+    match task_success {
+        Some(true) => "pass",
+        Some(false) => "fail",
+        None => "unknown",
+    }
+}
+
+fn accepted_label(accepted: Option<bool>) -> &'static str {
+    match accepted {
+        Some(true) => "true",
+        Some(false) => "false",
+        None => "unknown",
     }
 }
 
@@ -598,6 +641,7 @@ fn write_paired_observation_report(
     path: &Path,
     saver_off: &LiveVariant,
     saver_on: &LiveVariant,
+    task_success: Option<bool>,
 ) -> Result<(), String> {
     let baseline_tokens = saver_off.observation.after_estimated_tokens;
     let transformed_tokens = saver_on.observation.after_estimated_tokens;
@@ -607,6 +651,7 @@ fn write_paired_observation_report(
     } else {
         estimated_tokens_saved as f64 / baseline_tokens as f64 * 100.0
     };
+    let accepted = task_success.map(|success| success && estimated_tokens_saved > 0);
     let report = json!({
         "schema_version": 1,
         "report_type": "paired_live_evaluation",
@@ -614,7 +659,8 @@ fn write_paired_observation_report(
             .duration_since(UNIX_EPOCH)
             .map_err(|error| error.to_string())?
             .as_secs(),
-        "task_success": null,
+        "task_success": task_success,
+        "accepted": accepted,
         "comparison": {
             "baseline": "saver-off",
             "transformed": "saver-on",
@@ -868,7 +914,7 @@ fn print_help() {
         "  tokenmill acp-context-prompt <agent> <cwd> <context.json> <max-tokens> [--saver on|off] [--routing on|off] [--mode strict|compatible] [--report <path>]"
     );
     println!(
-        "  tokenmill acp-paired-context-prompt <agent> <cwd> <context.json> <max-tokens> [--mode strict|compatible] [--report <path>]"
+        "  tokenmill acp-paired-context-prompt <agent> <cwd> <context.json> <max-tokens> [--mode strict|compatible] [--task-success pass|fail|unknown] [--report <path>]"
     );
     println!("  tokenmill help    Show this help");
 }
@@ -928,14 +974,26 @@ mod tests {
     #[test]
     fn parses_paired_context_options() {
         let options = parse_paired_context_options(
-            ["--mode", "compatible", "--report", "paired.jsonl"]
-                .into_iter()
-                .map(str::to_owned),
+            [
+                "--mode",
+                "compatible",
+                "--task-success",
+                "pass",
+                "--report",
+                "paired.jsonl",
+            ]
+            .into_iter()
+            .map(str::to_owned),
         )
         .expect("paired options should parse");
 
         assert_eq!(options.mode, IntegrationMode::Compatible);
         assert_eq!(options.report_path, Some(PathBuf::from("paired.jsonl")));
+        assert_eq!(options.task_success, Some(true));
+
+        let defaults = parse_paired_context_options(std::iter::empty::<String>())
+            .expect("paired defaults should parse");
+        assert_eq!(defaults.task_success, None);
     }
 
     #[test]
@@ -1057,7 +1115,7 @@ mod tests {
             },
         };
 
-        write_paired_observation_report(&path, &saver_off, &saver_on)
+        write_paired_observation_report(&path, &saver_off, &saver_on, Some(true))
             .expect("paired report should write");
         let report = fs::read_to_string(&path).expect("paired report should read");
         fs::remove_file(path).expect("paired report should be removed");
@@ -1065,6 +1123,8 @@ mod tests {
             serde_json::from_str(report.trim()).expect("paired report should be JSON");
 
         assert_eq!(report["report_type"], "paired_live_evaluation");
+        assert_eq!(report["task_success"], true);
+        assert_eq!(report["accepted"], true);
         assert_eq!(report["comparison"]["estimated_tokens_saved"], 10);
         assert_eq!(report["variants"][1]["usage"]["latest_used"], 10);
         assert!(report.get("content").is_none());

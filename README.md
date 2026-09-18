@@ -27,7 +27,7 @@ cargo run -p tokenmill-cli -- replay
 cargo run -p tokenmill-cli -- acp-check <native-copilot-executable> <workspace>
 cargo run -p tokenmill-cli -- acp-prompt <native-copilot-executable> <workspace> "<prompt>"
 cargo run -p tokenmill-cli -- acp-context-prompt <native-copilot-executable> <workspace> <context.json> <max-tokens> [--saver on|off] [--routing on|off] [--mode strict|compatible] [--report <observation.jsonl>]
-cargo run -p tokenmill-cli -- acp-paired-context-prompt <native-copilot-executable> <workspace> <context.json> <max-tokens> [--mode strict|compatible] [--report <paired-observation.jsonl>]
+cargo run -p tokenmill-cli -- acp-paired-context-prompt <native-copilot-executable> <workspace> <context.json> <max-tokens> [--mode strict|compatible] [--task-success pass|fail|unknown] [--report <paired-observation.jsonl>]
 cargo fmt --all -- --check
 ```
 
@@ -44,7 +44,7 @@ Use `acp-paired-context-prompt` to send the same explicit context through saver-
 Use `--saver off`, `--routing off`, or `--mode compatible` for explicit control of the run policy.
 Pass `--report` to write one redacted JSONL observation without raw context.
 Live ACP output and reports include the latest agent-reported context usage when available (`used` and `size`), but these values are not exact provider billing data.
-The paired live evaluation reports task success as unmeasured because ACP cannot infer whether the developer's task succeeded from a prompt response alone.
+The paired live evaluation accepts explicit post-run evidence with `--task-success pass|fail|unknown`; it defaults to unknown because ACP cannot infer whether the developer's task succeeded from a prompt response alone.
 Permission requests are cancelled by default in the non-interactive CLI.
 On Windows, pass the native `copilot.exe`, not the shell, PowerShell, or batch wrapper installed on `PATH`.
 The live client is an ACP prompt client, not a Copilot context interceptor.

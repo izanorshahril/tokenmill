@@ -48,7 +48,7 @@ cargo run -p tokenmill-cli -- acp-context-prompt C:\path\to\copilot.exe C:\path\
 Run a paired live evaluation with the same context sent through saver-off and saver-on sessions:
 
 ```powershell
-cargo run -p tokenmill-cli -- acp-paired-context-prompt C:\path\to\copilot.exe C:\path\to\workspace C:\path\to\context.json 1200 --mode strict --report C:\path\to\paired-observation.jsonl
+cargo run -p tokenmill-cli -- acp-paired-context-prompt C:\path\to\copilot.exe C:\path\to\workspace C:\path\to\context.json 1200 --mode strict --task-success pass --report C:\path\to\paired-observation.jsonl
 ```
 
 The context document is a JSON object with an `items` array.
@@ -78,5 +78,7 @@ Use `--saver off` to preserve the supplied context while retaining an observatio
 Use `--routing off` to bypass the Tokenmill adapter policy and mark the run as bypassed.
 Use `--mode compatible` to allow explicitly labelled compatible behavior instead of strict validation.
 The paired live evaluation compares estimated context reduction and records each variant's redacted route, outcome, stop reason, update count, and usage summary.
-It reports task success as unmeasured because a live ACP response does not prove that the developer's task succeeded.
+Use `--task-success pass|fail|unknown` to record explicit post-run evidence.
+The default is `unknown` because a live ACP response does not prove that the developer's task succeeded.
+The report marks the pair accepted only when task success is `pass` and the saver-on context is smaller than saver-off.
 The check reports authentication methods but intentionally does not automate terminal login.
