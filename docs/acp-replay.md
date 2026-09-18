@@ -58,14 +58,15 @@ Supported kinds are `instruction`, `prompt`, `conversation`, `repository`, `comm
 }
 ```
 
-The live client collects `session/update` messages, prints agent message text, and reports the final stop reason and usage-update count.
+The live client collects `session/update` messages, prints agent message text, and reports the final stop reason, usage-update count, and latest agent-reported context usage when available.
+The reported `used` and `size` values describe what the ACP agent exposed for its context window; they are not exact provider billing tokens.
 It answers `session/request_permission` with cancellation by default so a non-interactive command cannot silently authorize an agent action.
 Library callers can provide an explicit permission handler with `prompt_with_permission_handler`.
 
 The text prompt path sends the supplied text as an ACP text block.
 The context prompt path serializes only the caller-supplied JSON package after local pruning.
 Neither path intercepts or rewrites hidden Copilot repository context or proxies client-side tools.
-When `--report` is provided, the command writes one redacted JSONL observation containing counts, route and saver status, measurement confidence, latency, outcome, and usage-update count.
+When `--report` is provided, the command writes one redacted JSONL observation containing counts, route and saver status, measurement confidence, latency, outcome, usage-update count, and latest reported context usage.
 The report does not contain context items, prompts, source, or raw ACP updates.
 Use `--saver off` to preserve the supplied context while retaining an observation when possible.
 Use `--routing off` to bypass the Tokenmill adapter policy and mark the run as bypassed.

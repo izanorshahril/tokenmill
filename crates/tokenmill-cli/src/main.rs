@@ -5,7 +5,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use serde_json::{Value, json};
 
 use tokenmill_acp::{
-    AcpAdapter, AcpProcess, AcpProcessConfig, AcpRequest, ReplayCase, ReplayHarness,
+    AcpAdapter, AcpProcess, AcpProcessConfig, AcpRequest, AcpUsageSummary, ReplayCase,
+    ReplayHarness,
 };
 use tokenmill_core::{
     ContextItem, ContextKind, ContextPackage, DeterministicPruner, IntegrationMode, RouteStatus,
@@ -82,7 +83,7 @@ fn run_acp_prompt(mut arguments: impl Iterator<Item = String>) {
     }
     println!("stop reason: {}", result.stop_reason);
     println!("updates: {}", result.updates.len());
-    println!("usage updates: {}", result.usage_updates.len());
+    print_usage_summary(&result.usage_summary());
 }
 
 fn run_acp_context_prompt(mut arguments: impl Iterator<Item = String>) {
@@ -179,13 +180,12 @@ fn run_acp_context_prompt(mut arguments: impl Iterator<Item = String>) {
     }
     println!("stop reason: {}", result.stop_reason);
     println!("updates: {}", result.updates.len());
-    println!("usage updates: {}", result.usage_updates.len());
+    let usage_summary = result.usage_summary();
+    print_usage_summary(&usage_summary);
     if let Some(report_path) = options.report_path {
-        if let Err(error) = write_observation_report(
-            &report_path,
-            &transformed.observation,
-            result.usage_updates.len(),
-        ) {
+        if let Err(error) =
+            write_observation_report(&report_path, &transformed.observation, &usage_summary)
+        {
             eprintln!("observation report failed: {error}");
             std::process::exit(1);
         }
@@ -310,10 +310,20 @@ fn parse_toggle(option: &str, value: &str) -> Result<bool, String> {
     }
 }
 
+fn print_usage_summary(summary: &AcpUsageSummary) {
+    println!("usage updates: {}", summary.update_count);
+    match (summary.latest_used, summary.latest_size) {
+        (Some(used), Some(size)) => println!("reported context usage: {used}/{size}"),
+        (Some(used), None) => println!("reported context usage: {used}/unknown"),
+        (None, Some(size)) => println!("reported context usage: unknown/{size}"),
+        (None, None) => {}
+    }
+}
+
 fn write_observation_report(
     path: &Path,
     observation: &tokenmill_core::Observation,
-    usage_update_count: usize,
+    usage: &AcpUsageSummary,
 ) -> Result<(), String> {
     let report = json!({
         "schema_version": 1,
@@ -339,7 +349,11 @@ fn write_observation_report(
             "task_success": observation.task_success,
             "outcome": observation_outcome_label(observation.outcome),
         },
-        "usage_update_count": usage_update_count,
+        "usage_update_count": usage.update_count,
+        "usage": {
+            "latest_used": usage.latest_used,
+            "latest_size": usage.latest_size,
+        },
     });
     let mut encoded = serde_json::to_string(&report).map_err(|error| error.to_string())?;
     encoded.push('\n');
@@ -557,8 +571,8 @@ mod tests {
     use std::path::PathBuf;
 
     use super::{
-        fs, parse_context_package, parse_context_prompt_options, route_status_for_agent,
-        write_observation_report,
+        AcpUsageSummary, fs, parse_context_package, parse_context_prompt_options,
+        route_status_for_agent, write_observation_report,
     };
     use serde_json::Value;
     use tokenmill_core::{ContextKind, IntegrationMode, RouteStatus};
@@ -653,13 +667,24 @@ mod tests {
             outcome: tokenmill_core::ObservationOutcome::Completed,
         };
 
-        write_observation_report(&path, &observation, 1).expect("report should write");
+        write_observation_report(
+            &path,
+            &observation,
+            &AcpUsageSummary {
+                update_count: 1,
+                latest_used: Some(12),
+                latest_size: Some(100),
+            },
+        )
+        .expect("report should write");
         let report = fs::read_to_string(&path).expect("report should read");
         fs::remove_file(path).expect("report should be removed");
         let report: Value = serde_json::from_str(report.trim()).expect("report should be JSON");
 
         assert_eq!(report["observation"]["before_estimated_tokens"], 20);
         assert_eq!(report["usage_update_count"], 1);
+        assert_eq!(report["usage"]["latest_used"], 12);
+        assert_eq!(report["usage"]["latest_size"], 100);
         assert!(report.get("content").is_none());
     }
 }

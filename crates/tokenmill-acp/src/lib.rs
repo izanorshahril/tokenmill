@@ -129,12 +129,43 @@ pub struct AcpSessionUpdate {
     pub update: Value,
 }
 
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct AcpUsageSummary {
+    pub update_count: usize,
+    pub latest_used: Option<u64>,
+    pub latest_size: Option<u64>,
+}
+
+impl AcpUsageSummary {
+    pub fn from_updates(updates: &[Value]) -> Self {
+        let mut summary = Self {
+            update_count: updates.len(),
+            ..Self::default()
+        };
+        for update in updates {
+            if let Some(used) = update.get("used").and_then(Value::as_u64) {
+                summary.latest_used = Some(used);
+            }
+            if let Some(size) = update.get("size").and_then(Value::as_u64) {
+                summary.latest_size = Some(size);
+            }
+        }
+        summary
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct AcpPromptResult {
     pub text: String,
     pub updates: Vec<AcpSessionUpdate>,
     pub usage_updates: Vec<Value>,
     pub stop_reason: String,
+}
+
+impl AcpPromptResult {
+    pub fn usage_summary(&self) -> AcpUsageSummary {
+        AcpUsageSummary::from_updates(&self.usage_updates)
+    }
 }
 
 impl AcpProcess {
@@ -1036,6 +1067,9 @@ mod tests {
         assert_eq!(result.text, "Hello world");
         assert_eq!(result.updates.len(), 3);
         assert_eq!(result.usage_updates.len(), 1);
+        assert_eq!(result.usage_summary().update_count, 1);
+        assert_eq!(result.usage_summary().latest_used, Some(12));
+        assert_eq!(result.usage_summary().latest_size, Some(100));
         assert_eq!(result.stop_reason, "end_turn");
         assert_eq!(selected_request_id.as_deref(), Some("permission-1"));
 

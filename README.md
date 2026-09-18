@@ -41,6 +41,7 @@ Use `acp-prompt` to send one text prompt through a live session and collect stre
 Use `acp-context-prompt` to prune an explicit local context JSON package before sending it through a live session.
 Use `--saver off`, `--routing off`, or `--mode compatible` for explicit control of the run policy.
 Pass `--report` to write one redacted JSONL observation without raw context.
+Live ACP output and reports include the latest agent-reported context usage when available (`used` and `size`), but these values are not exact provider billing data.
 Permission requests are cancelled by default in the non-interactive CLI.
 On Windows, pass the native `copilot.exe`, not the shell, PowerShell, or batch wrapper installed on `PATH`.
 The live client is an ACP prompt client, not a Copilot context interceptor.
