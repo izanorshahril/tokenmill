@@ -11,7 +11,9 @@
 ## Working rules
 
 - Keep the core independent from ACP, Copilot, desktop, web, tray, and TUI concerns.
-- Treat native Copilot interception and model-picker routing as unsupported unless verified by an explicit test.
+- Tokenmill's product focus is GitHub Copilot; do not use Microsoft Copilot or an ambiguous `copilot.exe` reference when naming or validating the target.
+- Live ACP examples must identify the GitHub Copilot CLI/ACP executable explicitly; a filename alone does not establish product identity.
+- Treat GitHub Copilot interception and native model-picker routing as unsupported unless verified by an explicit test.
 - Reuse Copilot's own authentication context; never import or persist credentials from another tool.
 - Do not persist raw prompts, source, tool output, or full request and response bodies.
 - Preserve strict versus compatible policy behavior and label unmeasured or unverified runs honestly.

@@ -28,4 +28,4 @@ Tokenmill exposes separate saver and routing/integration toggles. Saver-off bypa
 
 Strict mode fails closed when Tokenmill cannot verify the requested integration or measurement boundary. Compatible mode continues through an explicitly labelled supported fallback. The UI reports observed, estimated, and unmeasured values separately and never treats missing usage as zero.
 
-V1 does not guarantee that Tokenmill appears in the native Copilot model picker. It preserves the host-selected model and reports provider/model identity when observable.
+V1 does not guarantee that Tokenmill appears in the GitHub Copilot native model picker. It preserves the host-selected model and reports provider/model identity when observable.

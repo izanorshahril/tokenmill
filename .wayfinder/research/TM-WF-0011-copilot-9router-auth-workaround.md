@@ -43,15 +43,15 @@ Tokenmill must not inspect or migrate those secrets.
 
 Tokenmill should expose two explicit integration modes:
 
-1. **Native Copilot ACP**
-   Launch the exact native Copilot executable with the user's normal Windows identity and inherited environment.
+1. **GitHub Copilot CLI ACP**
+   Launch the exact GitHub Copilot CLI/ACP executable with the user's normal Windows identity and inherited environment.
    Preserve the existing `COPILOT_HOME` when set and do not override `COPILOT_GITHUB_TOKEN`, `GH_TOKEN`, or `GITHUB_TOKEN`.
    This is the preferred path when the user wants GitHub-hosted Copilot behavior.
 
 2. **9Router BYOK**
    Launch Copilot CLI with a separately configured OpenAI-compatible provider pointing to `http://localhost:20128/v1`.
    Obtain the gateway API key from the user's 9Router configuration and select a model from the gateway model list.
-   Treat this as explicit routing to a third-party or alternate provider path, not as native Copilot authentication.
+   Treat this as explicit routing to a third-party or alternate provider path, not as GitHub Copilot native authentication.
 
 The ACP adapter should report the selected route, provider, model, and measurement status.
 If Tokenmill cannot verify which path handled a request, strict mode should fail closed and compatible mode should label the result as unverified or estimated.

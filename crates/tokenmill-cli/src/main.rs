@@ -1065,14 +1065,20 @@ fn print_help() {
     println!("Usage:");
     println!("  tokenmill demo    Run the local deterministic saver evaluation");
     println!("  tokenmill replay  Run the ACP-compatible replay harness");
-    println!("  tokenmill acp-check <agent> [cwd]  Probe an ACP agent over stdio");
-    println!("  tokenmill acp-session-check <agent> [cwd]  Create an ACP session");
-    println!("  tokenmill acp-prompt <agent> <cwd> <prompt>  Send one ACP prompt");
     println!(
-        "  tokenmill acp-context-prompt <agent> <cwd> <context.json> <max-tokens> [--saver on|off] [--routing on|off] [--mode strict|compatible] [--report <path>]"
+        "  tokenmill acp-check <github-copilot-acp-executable> [cwd]  Probe GitHub Copilot ACP over stdio"
     );
     println!(
-        "  tokenmill acp-paired-context-prompt <agent> <cwd> <context.json> <max-tokens> [--mode strict|compatible] [--task-success pass|fail|unknown] [--report <path>] [--history <path>]"
+        "  tokenmill acp-session-check <github-copilot-acp-executable> [cwd]  Create a GitHub Copilot ACP session"
+    );
+    println!(
+        "  tokenmill acp-prompt <github-copilot-acp-executable> <cwd> <prompt>  Send one GitHub Copilot ACP prompt"
+    );
+    println!(
+        "  tokenmill acp-context-prompt <github-copilot-acp-executable> <cwd> <context.json> <max-tokens> [--saver on|off] [--routing on|off] [--mode strict|compatible] [--report <path>]"
+    );
+    println!(
+        "  tokenmill acp-paired-context-prompt <github-copilot-acp-executable> <cwd> <context.json> <max-tokens> [--mode strict|compatible] [--task-success pass|fail|unknown] [--report <path>] [--history <path>]"
     );
     println!("  tokenmill eval-history <history.jsonl>  Summarize redacted paired evaluations");
     println!("  tokenmill help    Show this help");
@@ -1091,7 +1097,7 @@ mod tests {
     use tokenmill_core::{ContextKind, IntegrationMode, RouteStatus};
 
     #[test]
-    fn verifies_only_the_native_copilot_agent_identity() {
+    fn verifies_only_the_github_copilot_agent_identity() {
         assert_eq!(
             route_status_for_agent(Some("Copilot")),
             RouteStatus::Verified

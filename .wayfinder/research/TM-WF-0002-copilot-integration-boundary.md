@@ -10,7 +10,7 @@ VS Code documents language-model providers, chat participants, language-model to
 
 Copilot CLI documents custom providers, model selection, hooks, MCP, and programmatic mode.
 
-ACP standardizes client-agent sessions, prompts, tools, modes, streamed updates, and extensions, but does not define provider discovery or native Copilot model-picker integration.
+ACP standardizes client-agent sessions, prompts, tools, modes, streamed updates, and extensions, but does not define provider discovery or GitHub Copilot native model-picker integration.
 
 A strict mode can require a verified supported path, known transformed context, provider/model identity, request and response lifecycle evidence, and provider-supplied usage where available.
 

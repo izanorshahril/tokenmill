@@ -29,7 +29,7 @@ Execution note: the user explicitly authorized a provisional local Rust scaffold
 
 <!-- Closed tickets only. Open child issues are discovered from frontmatter, not listed here. -->
 
-- [Verify GitHub Copilot integration and model-picker boundary](TM-WF-0002-copilot-integration-boundary.md): native Copilot model-picker injection is unverified; strict and compatible paths must report their measurement boundary.
+- [Verify GitHub Copilot integration and model-picker boundary](TM-WF-0002-copilot-integration-boundary.md): GitHub Copilot native model-picker injection is unverified; strict and compatible paths must report their measurement boundary.
 - [Establish reference behavior from 9router and Headroom](TM-WF-0003-reference-architecture-evidence.md): keep routing separate from saving and use stricter local-first observability defaults.
 - [Choose the Rust toolchain and deployment baseline](TM-WF-0004-rust-toolchain-and-deployment-matrix.md): use GNU Rust for the core/CLI profile and treat MSVC desktop support as separate.
 - [Build an evidence-backed saver and steering taxonomy](TM-WF-0005-saver-technique-taxonomy.md): prioritize deterministic local savers; keep ML, pruning, steering, and ambiguous techniques experimental or unresolved.

@@ -26,5 +26,5 @@ It does not intercept VS Code traffic, transform hidden Copilot context, or prox
 - `RunPolicy` makes saver/routing toggles and strict/compatible behavior explicit.
 - `Observation` records route, saver, measurement, and outcome fields without raw content.
 - The replay harness proves policy behavior independently of live ACP transport.
-- The live prompt path currently sends caller-supplied text and does not yet connect a transformed `ContextPackage` to native Copilot's hidden repository context.
+- The live prompt path currently sends caller-supplied text and does not yet connect a transformed `ContextPackage` to GitHub Copilot's hidden repository context.
 - The context prompt path can emit an explicit redacted JSONL observation; it does not persist raw context by default.

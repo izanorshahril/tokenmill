@@ -3,7 +3,7 @@
 Tokenmill is a local-first Rust project for measuring and reducing context sent through GitHub Copilot workflows.
 
 This repository currently contains a provisional scaffold, not a Copilot interceptor or production router.
-The implementation follows the open wayfinding map in `.wayfinder/issues/` and does not claim that native Copilot model-picker routing is available.
+The implementation follows the open wayfinding map in `.wayfinder/issues/` and does not claim that GitHub Copilot native model-picker routing is available.
 
 ## Workspace
 
@@ -24,10 +24,10 @@ The workspace uses a small pinned dependency set and should run with the install
 cargo test --workspace
 cargo run -p tokenmill-cli -- demo
 cargo run -p tokenmill-cli -- replay
-cargo run -p tokenmill-cli -- acp-check <native-copilot-executable> <workspace>
-cargo run -p tokenmill-cli -- acp-prompt <native-copilot-executable> <workspace> "<prompt>"
-cargo run -p tokenmill-cli -- acp-context-prompt <native-copilot-executable> <workspace> <context.json> <max-tokens> [--saver on|off] [--routing on|off] [--mode strict|compatible] [--report <observation.jsonl>]
-cargo run -p tokenmill-cli -- acp-paired-context-prompt <native-copilot-executable> <workspace> <context.json> <max-tokens> [--mode strict|compatible] [--task-success pass|fail|unknown] [--report <paired-observation.jsonl>] [--history <evaluation-history.jsonl>]
+cargo run -p tokenmill-cli -- acp-check <github-copilot-acp-executable> <workspace>
+cargo run -p tokenmill-cli -- acp-prompt <github-copilot-acp-executable> <workspace> "<prompt>"
+cargo run -p tokenmill-cli -- acp-context-prompt <github-copilot-acp-executable> <workspace> <context.json> <max-tokens> [--saver on|off] [--routing on|off] [--mode strict|compatible] [--report <observation.jsonl>]
+cargo run -p tokenmill-cli -- acp-paired-context-prompt <github-copilot-acp-executable> <workspace> <context.json> <max-tokens> [--mode strict|compatible] [--task-success pass|fail|unknown] [--report <paired-observation.jsonl>] [--history <evaluation-history.jsonl>]
 cargo run -p tokenmill-cli -- eval-history <evaluation-history.jsonl>
 cargo fmt --all -- --check
 ```
@@ -37,7 +37,7 @@ The estimate is not provider billing data.
 No network, source upload, telemetry export, or Copilot interception is performed.
 
 The replay command exercises strict and compatible ACP policy locally.
-The `acp-check` command launches a native ACP agent, performs `initialize`, and reports the negotiated agent and authentication methods without creating a session.
+The `acp-check` command launches the GitHub Copilot ACP executable, performs `initialize`, and reports the negotiated agent and authentication methods without creating a session.
 Use `acp-session-check` after authenticating the agent to also call `session/new`.
 Use `acp-prompt` to send one text prompt through a live session and collect streamed agent output.
 Use `acp-context-prompt` to prune an explicit local context JSON package before sending it through a live session.
@@ -50,7 +50,8 @@ Pass `--history` to append the redacted paired result to a local JSONL history f
 Use `eval-history <path>` to summarize accepted, rejected, and unknown runs together with estimated savings and average reduction.
 History parsing is strict: malformed, unrelated, or unsupported-schema lines fail instead of being silently counted.
 Permission requests are cancelled by default in the non-interactive CLI.
-On Windows, pass the native `copilot.exe`, not the shell, PowerShell, or batch wrapper installed on `PATH`.
+On Windows, pass the executable used by GitHub Copilot CLI's ACP mode, not the Microsoft Copilot executable, shell, PowerShell, or a batch wrapper installed on `PATH`.
+Do not infer product identity from a filename such as `copilot.exe`; verify the negotiated GitHub Copilot ACP agent with `acp-check`.
 The live client is an ACP prompt client, not a Copilot context interceptor.
 
 ## Provisional boundary
@@ -61,7 +62,7 @@ Future Copilot, router, desktop, web, tray, and TUI integrations must adapt into
 
 The V1 workflow and [core/adapter boundary](.wayfinder/issues/TM-WF-0007-core-adapter-boundary.md) are now decided in [the wayfinding map](.wayfinder/issues/TM-WF-0001-tokenmill-mvp-spec-map.md).
 The V1 control plane is a foreground CLI/TUI; the ACP adapter and replay harness are the next implementation slice.
-Desktop, web, and tray surfaces remain deferred, and native Copilot interception remains explicitly unclaimed.
+Desktop, web, and tray surfaces remain deferred, and GitHub Copilot interception remains explicitly unclaimed.
 
 V1 observation storage is local and user-controlled.
 Only redacted structured observations and aggregate counters are persisted.

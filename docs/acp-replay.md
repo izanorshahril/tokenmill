@@ -21,34 +21,34 @@ The replay harness does not persist raw context, contact a provider, or claim na
 The adapter also contains a small newline-delimited JSON-RPC process client.
 It keeps process and transport details inside `tokenmill-acp` and does not change the core saver or observation contract.
 
-Run an initialization-only check with the native Copilot executable:
+Run an initialization-only check with the GitHub Copilot CLI/ACP executable:
 
 ```powershell
-cargo run -p tokenmill-cli -- acp-check C:\path\to\copilot.exe C:\path\to\workspace
+cargo run -p tokenmill-cli -- acp-check C:\path\to\github-copilot-acp.exe C:\path\to\workspace
 ```
 
 After completing the agent's advertised login flow, create a session with:
 
 ```powershell
-cargo run -p tokenmill-cli -- acp-session-check C:\path\to\copilot.exe C:\path\to\workspace
+cargo run -p tokenmill-cli -- acp-session-check C:\path\to\github-copilot-acp.exe C:\path\to\workspace
 ```
 
 Send one text prompt through the same native ACP process with:
 
 ```powershell
-cargo run -p tokenmill-cli -- acp-prompt C:\path\to\copilot.exe C:\path\to\workspace "Explain the repository entry point"
+cargo run -p tokenmill-cli -- acp-prompt C:\path\to\github-copilot-acp.exe C:\path\to\workspace "Explain the repository entry point"
 ```
 
 Send an explicit Tokenmill context package through the saver and then ACP with:
 
 ```powershell
-cargo run -p tokenmill-cli -- acp-context-prompt C:\path\to\copilot.exe C:\path\to\workspace C:\path\to\context.json 1200 --saver on --routing on --mode strict --report C:\path\to\observation.jsonl
+cargo run -p tokenmill-cli -- acp-context-prompt C:\path\to\github-copilot-acp.exe C:\path\to\workspace C:\path\to\context.json 1200 --saver on --routing on --mode strict --report C:\path\to\observation.jsonl
 ```
 
 Run a paired live evaluation with the same context sent through saver-off and saver-on sessions:
 
 ```powershell
-cargo run -p tokenmill-cli -- acp-paired-context-prompt C:\path\to\copilot.exe C:\path\to\workspace C:\path\to\context.json 1200 --mode strict --task-success pass --report C:\path\to\paired-observation.jsonl --history C:\path\to\evaluation-history.jsonl
+cargo run -p tokenmill-cli -- acp-paired-context-prompt C:\path\to\github-copilot-acp.exe C:\path\to\workspace C:\path\to\context.json 1200 --mode strict --task-success pass --report C:\path\to\paired-observation.jsonl --history C:\path\to\evaluation-history.jsonl
 ```
 
 Summarize the redacted paired history with:
@@ -89,4 +89,6 @@ The default is `unknown` because a live ACP response does not prove that the dev
 The report marks the pair accepted only when task success is `pass` and the saver-on context is smaller than saver-off.
 The history file appends one redacted paired record per run and can be summarized without reading the original context package.
 History parsing rejects malformed, unrelated, or unsupported-schema records.
+The examples target GitHub Copilot CLI/ACP.
+Do not substitute a Microsoft Copilot executable merely because its filename contains `copilot.exe`.
 The check reports authentication methods but intentionally does not automate terminal login.
