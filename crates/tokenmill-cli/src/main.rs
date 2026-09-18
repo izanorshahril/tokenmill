@@ -21,6 +21,9 @@ fn main() {
         Some("acp-session-check") => run_acp_check(std::env::args().skip(2), true),
         Some("acp-prompt") => run_acp_prompt(std::env::args().skip(2)),
         Some("acp-context-prompt") => run_acp_context_prompt(std::env::args().skip(2)),
+        Some("acp-paired-context-prompt") => {
+            run_acp_paired_context_prompt(std::env::args().skip(2))
+        }
         Some("help") | Some("--help") | Some("-h") => print_help(),
         Some(command) => {
             eprintln!("Unknown command: {command}");
@@ -193,6 +196,189 @@ fn run_acp_context_prompt(mut arguments: impl Iterator<Item = String>) {
     }
 }
 
+fn run_acp_paired_context_prompt(mut arguments: impl Iterator<Item = String>) {
+    let Some(program) = arguments.next() else {
+        eprintln!("acp-paired-context-prompt requires an ACP agent executable path");
+        print_help();
+        std::process::exit(2);
+    };
+    let Some(cwd) = arguments.next().map(PathBuf::from) else {
+        eprintln!("acp-paired-context-prompt requires a workspace path");
+        print_help();
+        std::process::exit(2);
+    };
+    let Some(context_path) = arguments.next().map(PathBuf::from) else {
+        eprintln!("acp-paired-context-prompt requires a context JSON path");
+        print_help();
+        std::process::exit(2);
+    };
+    let Some(max_estimated_tokens) = arguments.next() else {
+        eprintln!("acp-paired-context-prompt requires a maximum estimated token count");
+        print_help();
+        std::process::exit(2);
+    };
+    let options = match parse_paired_context_options(arguments) {
+        Ok(options) => options,
+        Err(error) => {
+            eprintln!("acp-paired-context-prompt options failed: {error}");
+            std::process::exit(2);
+        }
+    };
+    let max_estimated_tokens = match max_estimated_tokens.parse::<usize>() {
+        Ok(value) => value,
+        Err(error) => {
+            eprintln!("invalid maximum estimated token count: {error}");
+            std::process::exit(2);
+        }
+    };
+    let context = match read_context_package(&context_path) {
+        Ok(context) => context,
+        Err(error) => {
+            eprintln!("context JSON failed: {error}");
+            std::process::exit(1);
+        }
+    };
+    let config = AcpProcessConfig::new(program)
+        .with_arg("--acp")
+        .with_working_directory(cwd.clone());
+    let mut process = match AcpProcess::spawn(&config) {
+        Ok(process) => process,
+        Err(error) => {
+            eprintln!("ACP paired prompt failed to start: {error}");
+            std::process::exit(1);
+        }
+    };
+    let initialization = match process.initialize() {
+        Ok(initialization) => initialization,
+        Err(error) => {
+            eprintln!("ACP initialize failed: {error}");
+            std::process::exit(1);
+        }
+    };
+    let provider = initialization.agent_name.clone();
+    let route_status = route_status_for_agent(initialization.agent_name.as_deref());
+    let saver_off = match run_live_context_variant(
+        &mut process,
+        &cwd,
+        &context,
+        RunPolicy {
+            saver_enabled: false,
+            mode: options.mode,
+            ..RunPolicy::default()
+        },
+        route_status,
+        provider.clone(),
+        max_estimated_tokens,
+        "live-paired-saver-off",
+    ) {
+        Ok(result) => result,
+        Err(error) => {
+            eprintln!("saver-off live evaluation failed: {error}");
+            std::process::exit(1);
+        }
+    };
+    let saver_on = match run_live_context_variant(
+        &mut process,
+        &cwd,
+        &context,
+        RunPolicy {
+            mode: options.mode,
+            ..RunPolicy::default()
+        },
+        route_status,
+        provider,
+        max_estimated_tokens,
+        "live-paired-saver-on",
+    ) {
+        Ok(result) => result,
+        Err(error) => {
+            eprintln!("saver-on live evaluation failed: {error}");
+            std::process::exit(1);
+        }
+    };
+
+    let estimated_tokens_saved = saver_off
+        .observation
+        .after_estimated_tokens
+        .saturating_sub(saver_on.observation.after_estimated_tokens);
+    let reduction_percent = if saver_off.observation.after_estimated_tokens == 0 {
+        0.0
+    } else {
+        estimated_tokens_saved as f64 / saver_off.observation.after_estimated_tokens as f64 * 100.0
+    };
+    println!("Tokenmill paired live context evaluation");
+    println!("task success: unmeasured");
+    println!(
+        "saver-off estimated tokens: {} -> {}",
+        saver_off.observation.before_estimated_tokens, saver_off.observation.after_estimated_tokens
+    );
+    println!(
+        "saver-on estimated tokens: {} -> {}",
+        saver_on.observation.before_estimated_tokens, saver_on.observation.after_estimated_tokens
+    );
+    println!("estimated tokens saved: {estimated_tokens_saved}");
+    println!("reduction versus saver-off: {reduction_percent:.1}%");
+    print_live_variant_summary(&saver_off);
+    print_live_variant_summary(&saver_on);
+
+    if let Some(report_path) = options.report_path {
+        if let Err(error) = write_paired_observation_report(&report_path, &saver_off, &saver_on) {
+            eprintln!("paired observation report failed: {error}");
+            std::process::exit(1);
+        }
+        println!("paired observation report: {}", report_path.display());
+    }
+}
+
+fn run_live_context_variant(
+    process: &mut AcpProcess,
+    cwd: &Path,
+    context: &ContextPackage,
+    policy: RunPolicy,
+    route_status: RouteStatus,
+    provider: Option<String>,
+    max_estimated_tokens: usize,
+    run_id: &str,
+) -> Result<LiveVariant, String> {
+    let mut request = AcpRequest::new(run_id, context.clone());
+    request.provider = provider;
+    request.route_status = route_status;
+    let transformed = AcpAdapter::new(policy, max_estimated_tokens).process(request);
+    let transformed_context = transformed
+        .transformed_context
+        .ok_or_else(|| format!("context saver rejected the run: {:?}", transformed.failure))?;
+    let session_id = process
+        .new_session(cwd)
+        .map_err(|error| error.to_string())?;
+    let result = process
+        .prompt_context(&session_id, &transformed_context)
+        .map_err(|error| error.to_string())?;
+    let usage = result.usage_summary();
+    Ok(LiveVariant {
+        name: if policy.saver_enabled {
+            "saver-on"
+        } else {
+            "saver-off"
+        },
+        observation: transformed.observation,
+        stop_reason: result.stop_reason,
+        update_count: result.updates.len(),
+        usage,
+    })
+}
+
+fn print_live_variant_summary(variant: &LiveVariant) {
+    println!(
+        "{}: route={}, outcome={}, stop_reason={}, updates={}",
+        variant.name,
+        route_status_label(variant.observation.route_status),
+        observation_outcome_label(variant.observation.outcome),
+        variant.stop_reason,
+        variant.update_count
+    );
+    print_usage_summary(&variant.usage);
+}
+
 fn read_context_package(path: &Path) -> Result<ContextPackage, String> {
     let source = fs::read_to_string(path).map_err(|error| error.to_string())?;
     parse_context_package(&source)
@@ -263,6 +449,20 @@ struct ContextPromptOptions {
     report_path: Option<PathBuf>,
 }
 
+#[derive(Debug, Eq, PartialEq)]
+struct PairedContextOptions {
+    mode: IntegrationMode,
+    report_path: Option<PathBuf>,
+}
+
+struct LiveVariant {
+    name: &'static str,
+    observation: tokenmill_core::Observation,
+    stop_reason: String,
+    update_count: usize,
+    usage: AcpUsageSummary,
+}
+
 fn parse_context_prompt_options(
     arguments: impl Iterator<Item = String>,
 ) -> Result<ContextPromptOptions, String> {
@@ -300,6 +500,40 @@ fn parse_context_prompt_options(
         policy,
         report_path,
     })
+}
+
+fn parse_paired_context_options(
+    arguments: impl Iterator<Item = String>,
+) -> Result<PairedContextOptions, String> {
+    let arguments = arguments.collect::<Vec<_>>();
+    let mut mode = IntegrationMode::Strict;
+    let mut report_path = None;
+    let mut index = 0;
+
+    while index < arguments.len() {
+        let option = arguments[index].as_str();
+        let value = arguments
+            .get(index + 1)
+            .ok_or_else(|| format!("{option} requires a value"))?;
+        match option {
+            "--mode" => {
+                mode = match value.as_str() {
+                    "strict" => IntegrationMode::Strict,
+                    "compatible" => IntegrationMode::Compatible,
+                    _ => {
+                        return Err(format!(
+                            "{option} must be strict or compatible, got {value}"
+                        ));
+                    }
+                };
+            }
+            "--report" => report_path = Some(PathBuf::from(value)),
+            _ => return Err(format!("unexpected argument: {option}")),
+        }
+        index += 2;
+    }
+
+    Ok(PairedContextOptions { mode, report_path })
 }
 
 fn parse_toggle(option: &str, value: &str) -> Result<bool, String> {
@@ -358,6 +592,76 @@ fn write_observation_report(
     let mut encoded = serde_json::to_string(&report).map_err(|error| error.to_string())?;
     encoded.push('\n');
     fs::write(path, encoded).map_err(|error| error.to_string())
+}
+
+fn write_paired_observation_report(
+    path: &Path,
+    saver_off: &LiveVariant,
+    saver_on: &LiveVariant,
+) -> Result<(), String> {
+    let baseline_tokens = saver_off.observation.after_estimated_tokens;
+    let transformed_tokens = saver_on.observation.after_estimated_tokens;
+    let estimated_tokens_saved = baseline_tokens.saturating_sub(transformed_tokens);
+    let reduction_percent = if baseline_tokens == 0 {
+        0.0
+    } else {
+        estimated_tokens_saved as f64 / baseline_tokens as f64 * 100.0
+    };
+    let report = json!({
+        "schema_version": 1,
+        "report_type": "paired_live_evaluation",
+        "created_at_unix_seconds": SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_err(|error| error.to_string())?
+            .as_secs(),
+        "task_success": null,
+        "comparison": {
+            "baseline": "saver-off",
+            "transformed": "saver-on",
+            "baseline_after_estimated_tokens": baseline_tokens,
+            "transformed_after_estimated_tokens": transformed_tokens,
+            "estimated_tokens_saved": estimated_tokens_saved,
+            "reduction_percent": reduction_percent,
+        },
+        "variants": [
+            live_variant_json(saver_off),
+            live_variant_json(saver_on),
+        ],
+    });
+    let mut encoded = serde_json::to_string(&report).map_err(|error| error.to_string())?;
+    encoded.push('\n');
+    fs::write(path, encoded).map_err(|error| error.to_string())
+}
+
+fn live_variant_json(variant: &LiveVariant) -> Value {
+    json!({
+        "name": variant.name,
+        "observation": {
+            "run_id": variant.observation.run_id,
+            "adapter": variant.observation.adapter,
+            "route_status": route_status_label(variant.observation.route_status),
+            "provider": variant.observation.provider,
+            "model": variant.observation.model,
+            "mode": integration_mode_label(variant.observation.mode),
+            "saver_enabled": variant.observation.saver_enabled,
+            "routing_enabled": variant.observation.routing_enabled,
+            "saver_name": variant.observation.saver_name,
+            "before_estimated_tokens": variant.observation.before_estimated_tokens,
+            "after_estimated_tokens": variant.observation.after_estimated_tokens,
+            "measurement": measurement_status_label(variant.observation.measurement),
+            "latency_millis": variant.observation.latency_millis,
+            "failure_reason": variant.observation.failure_reason,
+            "task_success": variant.observation.task_success,
+            "outcome": observation_outcome_label(variant.observation.outcome),
+        },
+        "stop_reason": variant.stop_reason,
+        "update_count": variant.update_count,
+        "usage": {
+            "update_count": variant.usage.update_count,
+            "latest_used": variant.usage.latest_used,
+            "latest_size": variant.usage.latest_size,
+        },
+    })
 }
 
 fn route_status_label(status: RouteStatus) -> &'static str {
@@ -563,6 +867,9 @@ fn print_help() {
     println!(
         "  tokenmill acp-context-prompt <agent> <cwd> <context.json> <max-tokens> [--saver on|off] [--routing on|off] [--mode strict|compatible] [--report <path>]"
     );
+    println!(
+        "  tokenmill acp-paired-context-prompt <agent> <cwd> <context.json> <max-tokens> [--mode strict|compatible] [--report <path>]"
+    );
     println!("  tokenmill help    Show this help");
 }
 
@@ -571,8 +878,9 @@ mod tests {
     use std::path::PathBuf;
 
     use super::{
-        AcpUsageSummary, fs, parse_context_package, parse_context_prompt_options,
-        route_status_for_agent, write_observation_report,
+        AcpUsageSummary, LiveVariant, fs, parse_context_package, parse_context_prompt_options,
+        parse_paired_context_options, route_status_for_agent, write_observation_report,
+        write_paired_observation_report,
     };
     use serde_json::Value;
     use tokenmill_core::{ContextKind, IntegrationMode, RouteStatus};
@@ -615,6 +923,19 @@ mod tests {
             options.report_path,
             Some(PathBuf::from("observation.jsonl"))
         );
+    }
+
+    #[test]
+    fn parses_paired_context_options() {
+        let options = parse_paired_context_options(
+            ["--mode", "compatible", "--report", "paired.jsonl"]
+                .into_iter()
+                .map(str::to_owned),
+        )
+        .expect("paired options should parse");
+
+        assert_eq!(options.mode, IntegrationMode::Compatible);
+        assert_eq!(options.report_path, Some(PathBuf::from("paired.jsonl")));
     }
 
     #[test]
@@ -685,6 +1006,67 @@ mod tests {
         assert_eq!(report["usage_update_count"], 1);
         assert_eq!(report["usage"]["latest_used"], 12);
         assert_eq!(report["usage"]["latest_size"], 100);
+        assert!(report.get("content").is_none());
+    }
+
+    #[test]
+    fn paired_observation_report_excludes_raw_context() {
+        let path = std::env::temp_dir().join("tokenmill-paired-observation-test.json");
+        let observation = tokenmill_core::Observation {
+            run_id: "paired-run".to_owned(),
+            adapter: "acp".to_owned(),
+            route_status: tokenmill_core::RouteStatus::Verified,
+            provider: Some("copilot".to_owned()),
+            model: None,
+            mode: tokenmill_core::IntegrationMode::Strict,
+            saver_enabled: false,
+            routing_enabled: true,
+            saver_name: None,
+            before_estimated_tokens: 20,
+            after_estimated_tokens: 20,
+            measurement: tokenmill_core::MeasurementStatus::Estimated,
+            latency_millis: Some(3),
+            failure_reason: None,
+            task_success: None,
+            outcome: tokenmill_core::ObservationOutcome::Completed,
+        };
+        let saver_off = LiveVariant {
+            name: "saver-off",
+            observation: observation.clone(),
+            stop_reason: "end_turn".to_owned(),
+            update_count: 1,
+            usage: AcpUsageSummary {
+                update_count: 1,
+                latest_used: Some(20),
+                latest_size: Some(100),
+            },
+        };
+        let saver_on = LiveVariant {
+            name: "saver-on",
+            observation: tokenmill_core::Observation {
+                saver_enabled: true,
+                after_estimated_tokens: 10,
+                ..observation
+            },
+            stop_reason: "end_turn".to_owned(),
+            update_count: 1,
+            usage: AcpUsageSummary {
+                update_count: 1,
+                latest_used: Some(10),
+                latest_size: Some(100),
+            },
+        };
+
+        write_paired_observation_report(&path, &saver_off, &saver_on)
+            .expect("paired report should write");
+        let report = fs::read_to_string(&path).expect("paired report should read");
+        fs::remove_file(path).expect("paired report should be removed");
+        let report: Value =
+            serde_json::from_str(report.trim()).expect("paired report should be JSON");
+
+        assert_eq!(report["report_type"], "paired_live_evaluation");
+        assert_eq!(report["comparison"]["estimated_tokens_saved"], 10);
+        assert_eq!(report["variants"][1]["usage"]["latest_used"], 10);
         assert!(report.get("content").is_none());
     }
 }
