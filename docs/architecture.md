@@ -28,3 +28,4 @@ It does not intercept VS Code traffic, transform hidden Copilot context, or prox
 - The replay harness proves policy behavior independently of live ACP transport.
 - The live prompt path currently sends caller-supplied text and does not yet connect a transformed `ContextPackage` to GitHub Copilot's hidden repository context.
 - The context prompt path can emit an explicit redacted JSONL observation; it does not persist raw context by default.
+- The CLI TUI renders the redacted paired-history summary locally and provides refresh/quit controls without adding a network or desktop runtime.

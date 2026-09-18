@@ -1,5 +1,5 @@
 use std::fs::{self, File, OpenOptions};
-use std::io::{BufRead, BufReader, Write};
+use std::io::{self, BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -26,6 +26,7 @@ fn main() {
             run_acp_paired_context_prompt(std::env::args().skip(2))
         }
         Some("eval-history") => run_evaluation_history(std::env::args().skip(2)),
+        Some("tui") => run_tui(std::env::args().skip(2)),
         Some("help") | Some("--help") | Some("-h") => print_help(),
         Some(command) => {
             eprintln!("Unknown command: {command}");
@@ -383,6 +384,97 @@ fn run_evaluation_history(mut arguments: impl Iterator<Item = String>) {
         "average reduction: {:.1}%",
         summary.average_reduction_percent
     );
+}
+
+fn run_tui(mut arguments: impl Iterator<Item = String>) {
+    let Some(path) = arguments.next().map(PathBuf::from) else {
+        eprintln!("tui requires a history JSONL path");
+        print_help();
+        std::process::exit(2);
+    };
+    let mut render_once = false;
+    for argument in arguments {
+        if argument == "--once" {
+            render_once = true;
+        } else {
+            eprintln!("tui received unexpected argument: {argument}");
+            print_help();
+            std::process::exit(2);
+        }
+    }
+
+    loop {
+        let summary = match summarize_evaluation_history(&path) {
+            Ok(summary) => summary,
+            Err(error) => {
+                eprintln!("evaluation history failed: {error}");
+                std::process::exit(1);
+            }
+        };
+        print!("\x1b[2J\x1b[H{}", render_tui_dashboard(&path, &summary));
+        if let Err(error) = io::stdout().flush() {
+            eprintln!("tui output failed: {error}");
+            std::process::exit(1);
+        }
+        if render_once {
+            return;
+        }
+
+        print!("\nCommand [r]efresh, [h]elp, [q]uit: ");
+        if let Err(error) = io::stdout().flush() {
+            eprintln!("tui prompt failed: {error}");
+            std::process::exit(1);
+        }
+        let mut command = String::new();
+        match io::stdin().read_line(&mut command) {
+            Ok(0) => return,
+            Ok(_) => match command.trim().to_ascii_lowercase().as_str() {
+                "q" | "quit" => return,
+                "r" | "refresh" | "" => continue,
+                "h" | "help" => {
+                    println!("\n[r] refresh the redacted history");
+                    println!("[h] show these controls");
+                    println!("[q] quit the TUI");
+                }
+                _ => println!("\nUnknown command. Use r, h, or q."),
+            },
+            Err(error) => {
+                eprintln!("tui input failed: {error}");
+                std::process::exit(1);
+            }
+        }
+    }
+}
+
+fn render_tui_dashboard(path: &Path, summary: &EvaluationHistorySummary) -> String {
+    let accepted_rate = if summary.run_count == 0 {
+        0.0
+    } else {
+        summary.accepted_count as f64 / summary.run_count as f64 * 100.0
+    };
+    format!(
+        "Tokenmill | GitHub Copilot context savings\n\
+================================================\n\
+History: {}\n\
+Data: redacted local paired evaluations\n\n\
+Runs             {:>10}\n\
+Accepted         {:>10}\n\
+Rejected         {:>10}\n\
+Unknown          {:>10}\n\
+Acceptance rate  {:>9.1}%\n\
+Tokens saved     {:>10}\n\
+Avg reduction    {:>9.1}%\n\n\
+The dashboard never reads or displays raw prompts, source, tool output,\n\
+or ACP update bodies.\n",
+        path.display(),
+        summary.run_count,
+        summary.accepted_count,
+        summary.rejected_count,
+        summary.unknown_count,
+        accepted_rate,
+        summary.estimated_tokens_saved,
+        summary.average_reduction_percent,
+    )
 }
 
 fn run_live_context_variant(
@@ -1113,6 +1205,7 @@ fn print_help() {
         "  tokenmill acp-paired-context-prompt <github-copilot-acp-executable> <cwd> <context.json> <max-tokens> [--mode strict|compatible] [--task-success pass|fail|unknown] [--report <path>] [--history <path>]"
     );
     println!("  tokenmill eval-history <history.jsonl>  Summarize redacted paired evaluations");
+    println!("  tokenmill tui <history.jsonl> [--once]  Open the local redacted history TUI");
     println!("  tokenmill help    Show this help");
 }
 
@@ -1121,9 +1214,10 @@ mod tests {
     use std::path::{Path, PathBuf};
 
     use super::{
-        AcpUsageSummary, LiveVariant, append_paired_observation_report, fs, parse_context_package,
-        parse_context_prompt_options, parse_paired_context_options, route_status_for_agent,
-        summarize_evaluation_history, write_observation_report, write_paired_observation_report,
+        AcpUsageSummary, EvaluationHistorySummary, LiveVariant, append_paired_observation_report,
+        fs, parse_context_package, parse_context_prompt_options, parse_paired_context_options,
+        render_tui_dashboard, route_status_for_agent, summarize_evaluation_history,
+        write_observation_report, write_paired_observation_report,
     };
     use serde_json::Value;
     use tokenmill_core::{ContextKind, IntegrationMode, RouteStatus};
@@ -1378,5 +1472,29 @@ mod tests {
         fs::remove_file(path).expect("history should be removed");
 
         assert!(error.contains("line 1: not a paired live evaluation"));
+    }
+
+    #[test]
+    fn tui_dashboard_renders_redacted_history_metrics() {
+        let summary = EvaluationHistorySummary {
+            run_count: 4,
+            accepted_count: 2,
+            rejected_count: 1,
+            unknown_count: 1,
+            estimated_tokens_saved: 120,
+            average_reduction_percent: 18.5,
+        };
+
+        let dashboard = render_tui_dashboard(Path::new("evaluation-history.jsonl"), &summary);
+
+        assert!(dashboard.contains("Tokenmill | GitHub Copilot context savings"));
+        assert!(dashboard.contains("Runs"));
+        assert!(dashboard.contains("4"));
+        assert!(dashboard.contains("Acceptance rate"));
+        assert!(dashboard.contains("50.0%"));
+        assert!(dashboard.contains("Tokens saved"));
+        assert!(dashboard.contains("120"));
+        assert!(dashboard.contains("redacted local paired evaluations"));
+        assert!(!dashboard.contains("raw prompt content"));
     }
 }

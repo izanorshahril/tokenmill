@@ -57,6 +57,16 @@ Summarize the redacted paired history with:
 cargo run -p tokenmill-cli -- eval-history C:\path\to\evaluation-history.jsonl
 ```
 
+Open the first Tokenmill TUI over the same redacted history with:
+
+```powershell
+cargo run -p tokenmill-cli -- tui C:\path\to\evaluation-history.jsonl
+```
+
+The dashboard shows run counts, explicit acceptance evidence, estimated tokens saved, and average reduction.
+Press `r` to refresh, `h` for controls, or `q` to quit.
+Use `--once` for a single non-interactive render.
+
 The context document is a JSON object with an `items` array.
 Each item contains `id`, `kind`, `content`, and `protected` fields.
 Supported kinds are `instruction`, `prompt`, `conversation`, `repository`, `command-output`, and `tool-output`.
@@ -89,6 +99,7 @@ The default is `unknown` because a live ACP response does not prove that the dev
 The report marks the pair accepted only when task success is `pass` and the saver-on context is smaller than saver-off.
 The history file appends one redacted paired record per run and can be summarized without reading the original context package.
 History parsing rejects malformed, unrelated, or unsupported-schema records.
+The TUI reads only those redacted aggregate fields and does not display raw prompts, source, tool output, or ACP update bodies.
 The examples target GitHub Copilot CLI/ACP.
 Do not substitute a Microsoft Copilot executable merely because its filename contains `copilot.exe`.
 GitHub Copilot CLI versions that report the generic ACP name `Copilot` are verified only when the executable path contains a recognized GitHub distribution marker such as `github-copilot-sdk` or `GitHub CLI\copilot`.

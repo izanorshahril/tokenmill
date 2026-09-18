@@ -11,7 +11,7 @@ The implementation follows the open wayfinding map in `.wayfinder/issues/` and d
 crates/
   tokenmill-core/    Protocol-neutral context model, deterministic saver, and evaluation primitives
   tokenmill-acp/     ACP boundary model, replay harness, and stdio process client
-  tokenmill-cli/     Offline CLI and replay commands
+  tokenmill-cli/     Offline CLI, replay commands, and local TUI
 .wayfinder/          Local planning map, tickets, and research assets
 CONTEXT.md           Domain glossary
 ```
@@ -29,6 +29,7 @@ cargo run -p tokenmill-cli -- acp-prompt <github-copilot-acp-executable> <worksp
 cargo run -p tokenmill-cli -- acp-context-prompt <github-copilot-acp-executable> <workspace> <context.json> <max-tokens> [--saver on|off] [--routing on|off] [--mode strict|compatible] [--report <observation.jsonl>]
 cargo run -p tokenmill-cli -- acp-paired-context-prompt <github-copilot-acp-executable> <workspace> <context.json> <max-tokens> [--mode strict|compatible] [--task-success pass|fail|unknown] [--report <paired-observation.jsonl>] [--history <evaluation-history.jsonl>]
 cargo run -p tokenmill-cli -- eval-history <evaluation-history.jsonl>
+cargo run -p tokenmill-cli -- tui <evaluation-history.jsonl>
 cargo fmt --all -- --check
 ```
 
@@ -48,6 +49,8 @@ Live ACP output and reports include the latest agent-reported context usage when
 The paired live evaluation accepts explicit post-run evidence with `--task-success pass|fail|unknown`; it defaults to unknown because ACP cannot infer whether the developer's task succeeded from a prompt response alone.
 Pass `--history` to append the redacted paired result to a local JSONL history file without storing raw context or ACP updates.
 Use `eval-history <path>` to summarize accepted, rejected, and unknown runs together with estimated savings and average reduction.
+Use `tui <path>` to open the first Tokenmill user interface: a local ANSI terminal dashboard over the same redacted history.
+The TUI supports `r` to refresh, `h` for controls, and `q` to quit; add `--once` for a non-interactive render.
 History parsing is strict: malformed, unrelated, or unsupported-schema lines fail instead of being silently counted.
 Permission requests are cancelled by default in the non-interactive CLI.
 On Windows, pass the executable used by GitHub Copilot CLI's ACP mode, not the Microsoft Copilot executable, shell, PowerShell, or a batch wrapper installed on `PATH`.
@@ -60,7 +63,7 @@ The live client is an ACP prompt client, not a Copilot context interceptor.
 
 `tokenmill-core` owns context packages, deterministic saver behavior, measurement labels, and paired evaluation.
 `tokenmill-acp` translates ACP-shaped requests into that boundary and reports structured observations.
-Future Copilot, router, desktop, web, tray, and TUI integrations must adapt into this boundary rather than change the domain model.
+Future Copilot, router, desktop, web, and tray integrations must adapt into this boundary rather than change the domain model.
 
 The V1 workflow and [core/adapter boundary](.wayfinder/issues/TM-WF-0007-core-adapter-boundary.md) are now decided in [the wayfinding map](.wayfinder/issues/TM-WF-0001-tokenmill-mvp-spec-map.md).
 The V1 control plane is a foreground CLI/TUI; the ACP adapter and replay harness are the next implementation slice.
