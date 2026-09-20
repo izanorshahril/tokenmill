@@ -19,6 +19,12 @@
 - Preserve strict versus compatible policy behavior and label unmeasured or unverified runs honestly.
 - Prefer focused tests, then run `cargo fmt --all -- --check` and `cargo test --workspace`.
 
+## Documentation search
+
+For documentation, specifications, and recorded research, use the project-local QMD index described in [README.md](README.md#documentation-search).
+From the repository root, run `qmd update` after Markdown changes, then use `qmd search "ACP permissions" --format json -n 5` for keyword retrieval or `qmd query` for semantic retrieval.
+Treat `.wayfinder/archive` and research results as historical evidence; verify claims against current source.
+
 ## Codemapping
 
 Graphify is optional development tooling, not a Tokenmill runtime or Cargo dependency.

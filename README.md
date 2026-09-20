@@ -12,6 +12,7 @@ crates/
   tokenmill-core/    Protocol-neutral context model, deterministic saver, and evaluation primitives
   tokenmill-acp/     ACP boundary model, replay harness, and stdio process client
   tokenmill-cli/     CLI, local TUI, shared settings, and Windows tray adapter
+.qmd/index.yml       Optional QMD documentation search configuration
 .wayfinder/          Archived V1 implementation record, tickets, and research assets
   archive/issues/    Closed specification, implementation, and decision tickets
   issues/            Active tray control-plane map and implementation ticket
@@ -67,6 +68,40 @@ Do not infer product identity from a filename such as `copilot.exe`.
 For GitHub Copilot CLI versions that report the generic ACP name `Copilot`, strict verification also requires a GitHub-specific executable path such as the GitHub Copilot SDK or GitHub CLI installation path.
 An explicit negotiated identity of `GitHub Copilot` or `GitHub Copilot CLI` is accepted when the executable path is not clearly identified as Microsoft Copilot.
 The live client is an ACP prompt client, not a Copilot context interceptor.
+
+## Documentation search
+
+[QMD](https://github.com/tobi/qmd) is optional local development tooling, tested with version 2.8.3.
+Run commands from the repository root; QMD uses `.qmd/index.yml` and a Git-ignored local index automatically.
+The `tokenmill` collection covers current Markdown documentation; `tokenmill-wayfinder` covers `.wayfinder`, with archived plans and research labelled as historical evidence.
+Source code, build output, and Graphify output are outside this documentation index.
+
+Refresh after documentation changes:
+
+```powershell
+qmd update
+```
+
+Search keywords without loading a model:
+
+```powershell
+qmd search "ACP permissions" --format json -n 5
+```
+
+Refresh local embeddings after indexing:
+
+```powershell
+qmd embed
+```
+
+Run hybrid search with local query expansion and reranking:
+
+```powershell
+qmd query "How are ACP permission requests handled?"
+```
+
+Model downloads happen on first use and are shared in QMD's user cache; document indexing and inference stay local.
+Use `-c tokenmill` to restrict results to current documentation, and treat source files as authoritative.
 
 ## Provisional boundary
 
