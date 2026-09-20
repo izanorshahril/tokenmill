@@ -14,6 +14,8 @@ use tokenmill_core::{
     MIN_ACCEPTED_REDUCTION_PERCENT, RouteStatus, RunPolicy, evaluate,
 };
 
+mod settings;
+mod tray;
 mod view;
 use view::{EvaluationHistorySummary, RedactedRunView, ReportedContextUsage, TaskEvidence};
 
@@ -30,6 +32,18 @@ fn main() {
         }
         Some("eval-history") => run_evaluation_history(std::env::args().skip(2)),
         Some("tui") => run_tui(std::env::args().skip(2)),
+        Some("settings") | Some("tray") => {
+            let args: Vec<_> = std::env::args().skip(2).collect();
+            let result = if std::env::args().nth(1).as_deref() == Some("tray") {
+                tray::run(&args)
+            } else {
+                settings::command(&args)
+            };
+            if let Err(error) = result {
+                eprintln!("{error}");
+                std::process::exit(1);
+            }
+        }
         Some("help") | Some("--help") | Some("-h") => print_help(),
         Some(command) => {
             eprintln!("Unknown command: {command}");
@@ -125,18 +139,32 @@ fn run_acp_context_prompt(mut arguments: impl Iterator<Item = String>) {
         print_help();
         std::process::exit(2);
     };
-    let options = match parse_context_prompt_options(arguments) {
-        Ok(options) => options,
-        Err(error) => {
-            eprintln!("acp-context-prompt options failed: {error}");
-            std::process::exit(2);
-        }
-    };
+    let options =
+        match settings::load().and_then(|policy| parse_context_prompt_options(arguments, policy)) {
+            Ok(options) => options,
+            Err(error) => {
+                eprintln!("acp-context-prompt options failed: {error}");
+                std::process::exit(2);
+            }
+        };
     let max_estimated_tokens = match max_estimated_tokens.parse::<usize>() {
         Ok(value) => value,
         Err(error) => {
             eprintln!("invalid maximum estimated token count: {error}");
             std::process::exit(2);
+        }
+    };
+    if !options.policy.routing_enabled {
+        println!("Routing OFF: request not submitted.");
+        println!("No context read, ACP process started, or report written.");
+        println!("Use GitHub Copilot directly to continue outside Tokenmill.");
+        return;
+    }
+    let mut active_request = match settings::Request::begin(options.policy) {
+        Ok(lock) => lock,
+        Err(error) => {
+            eprintln!("request tracking failed: {error}");
+            std::process::exit(1);
         }
     };
     let context = match read_context_package(&context_path) {
@@ -189,6 +217,12 @@ fn run_acp_context_prompt(mut arguments: impl Iterator<Item = String>) {
         }
     };
 
+    if let Some(request) = active_request.as_mut() {
+        if let Err(error) = request.complete(route_status) {
+            eprintln!("request status failed: {error}");
+            std::process::exit(1);
+        }
+    }
     println!(
         "estimated tokens: {} -> {}",
         transformed.observation.before_estimated_tokens,
@@ -419,6 +453,7 @@ fn run_tui(mut arguments: impl Iterator<Item = String>) {
         }
     }
 
+    let mut feedback = None;
     loop {
         let summary = match summarize_evaluation_history(&path) {
             Ok(summary) => summary,
@@ -436,7 +471,10 @@ fn run_tui(mut arguments: impl Iterator<Item = String>) {
             return;
         }
 
-        print!("\nCommand [r]efresh, [h]elp, [q]uit: ");
+        if let Some(message) = feedback.take() {
+            println!("\n{message}");
+        }
+        print!("\nCommand [r]efresh, [h]elp, [q]uit (then Enter): ");
         if let Err(error) = io::stdout().flush() {
             eprintln!("tui prompt failed: {error}");
             std::process::exit(1);
@@ -448,11 +486,11 @@ fn run_tui(mut arguments: impl Iterator<Item = String>) {
                 "q" | "quit" => return,
                 "r" | "refresh" | "" => continue,
                 "h" | "help" => {
-                    println!("\n[r] refresh the redacted history");
-                    println!("[h] show these controls");
-                    println!("[q] quit the TUI");
+                    feedback = Some(
+                        "[r] refresh the redacted history\n[h] show these controls\n[q] quit the TUI",
+                    );
                 }
-                _ => println!("\nUnknown command. Use r, h, or q."),
+                _ => feedback = Some("Unknown command. Use r, h, or q."),
             },
             Err(error) => {
                 eprintln!("tui input failed: {error}");
@@ -731,9 +769,9 @@ struct LiveVariant {
 
 fn parse_context_prompt_options(
     arguments: impl Iterator<Item = String>,
+    mut policy: RunPolicy,
 ) -> Result<ContextPromptOptions, String> {
     let arguments = arguments.collect::<Vec<_>>();
-    let mut policy = RunPolicy::default();
     let mut report_path = None;
     let mut index = 0;
 
@@ -1254,6 +1292,8 @@ fn run_demo() {
 }
 
 fn print_help() {
+    println!("  tokenmill tray  Open Windows tray controls for acp-context-prompt");
+    println!("  tokenmill settings show|init|set <routing|saver|mode> <value>");
     println!("Tokenmill provisional CLI");
     println!();
     println!("Usage:");
@@ -1292,7 +1332,7 @@ mod tests {
     };
     use serde_json::Value;
     use tokenmill_core::{
-        ContextKind, IntegrationMode, MeasurementStatus, ObservationOutcome, RouteStatus,
+        ContextKind, IntegrationMode, MeasurementStatus, ObservationOutcome, RouteStatus, RunPolicy,
     };
 
     #[test]
@@ -1342,6 +1382,7 @@ mod tests {
             ]
             .into_iter()
             .map(str::to_owned),
+            RunPolicy::default(),
         )
         .expect("policy options should parse");
 
@@ -1352,6 +1393,28 @@ mod tests {
             options.report_path,
             Some(PathBuf::from("observation.jsonl"))
         );
+    }
+
+    #[test]
+    fn saved_policy_supplies_defaults_and_explicit_flags_win() {
+        let saved = RunPolicy {
+            routing_enabled: false,
+            saver_enabled: false,
+            mode: IntegrationMode::Compatible,
+            ..RunPolicy::default()
+        };
+        let unchanged = parse_context_prompt_options(std::iter::empty(), saved).unwrap();
+        assert_eq!(unchanged.policy, saved);
+        let overridden = parse_context_prompt_options(
+            ["--saver", "on", "--mode", "strict"]
+                .into_iter()
+                .map(str::to_owned),
+            saved,
+        )
+        .unwrap();
+        assert!(overridden.policy.saver_enabled);
+        assert!(!overridden.policy.routing_enabled);
+        assert_eq!(overridden.policy.mode, IntegrationMode::Strict);
     }
 
     #[test]

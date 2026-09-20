@@ -66,8 +66,13 @@ cargo run -p tokenmill-cli -- tui C:\path\to\evaluation-history.jsonl
 The dashboard shows run counts, explicit acceptance evidence, estimated tokens saved, and average reduction.
 Its latest-run evidence section also shows route identity, mode, saver, outcome, measurement confidence, task-success provenance, estimated before/after counts, failure reason, and optional agent-reported context-window usage.
 The usage line is explicitly labeled as non-billing data.
-Press `r` to refresh, `h` for controls, or `q` to quit.
+Enter `r` to refresh, `h` for controls, or `q` to quit, followed by Enter.
 Use `--once` for a single non-interactive render.
+
+For `acp-context-prompt --routing off`, Tokenmill skips submission and exits successfully with an explicit notice.
+It does not read the context file, launch ACP, or write the requested report.
+Continue directly in GitHub Copilot for requests outside Tokenmill; this command does not forward them automatically.
+The replay adapter's in-memory bypass still returns unchanged context for callers; that is distinct from the live CLI's submission gate.
 
 Use the committed redacted fixture to verify accepted, rejected, unknown, and unverified states without raw content:
 

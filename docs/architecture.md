@@ -11,9 +11,23 @@ flowchart LR
     Process[ACP stdio process] --> Lifecycle[initialize / session / prompt]
     Lifecycle --> Updates[Streamed updates and usage]
     Updates --> Observe
+    Tray[Windows tray / WinForms] --> Settings[Local validated settings]
+    Settings --> Policy[CLI flags override saved policy]
+    Policy --> ContextCommand[acp-context-prompt]
+    ContextCommand --> Adapter
+    ContextCommand --> Status[Redacted last-request status]
+    Status --> Tray
 ```
 
 The current core deliberately stops before network or editor integration.
+
+`tokenmill-cli::settings` owns local policy storage, atomic replacement, and OS-held settings/request locks.
+`tokenmill-cli::tray` compiles its embedded WinForms C# source with the installed .NET Framework compiler and launches the native GUI only for the explicit `tray` command; headless commands require no GUI runtime.
+`tokenmill-tray` is the console-free entry point, and `Start-Tokenmill.cmd` provides repository-local double-click launch.
+The tray reads settings through the same CLI entry point used by automation and changes policy for subsequent `acp-context-prompt` requests only.
+First initialization disables routing, while absent settings preserve historical CLI defaults.
+The request lock serializes tracked context requests; process termination releases the lock, leaving incomplete redacted status rather than stale RUNNING state.
+Tray policy does not affect raw prompts, paired evaluations, or external GitHub Copilot traffic.
 
 The current `tokenmill-acp` crate is a normalized adapter boundary, replay harness, and small ACP JSON-RPC stdio process client.
 The process client launches an explicitly configured agent, creates sessions, sends text prompts, collects streamed updates and usage updates, and cancels permission requests by default.

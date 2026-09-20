@@ -2,6 +2,7 @@
 
 This repository uses local Markdown issues because no hosted issue tracker was provided.
 
+- Active tray control-plane map: `issues/TM-WF-0019-tray-control-plane-map.md`.
 - Archived canonical V1 map: `archive/issues/TM-WF-0012-tokenmill-v1-implementation-map.md`.
 - Archived decisions and closed tickets: `archive/issues/`.
 - Research evidence: `research/`.

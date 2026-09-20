@@ -1,5 +1,6 @@
 [package]
 name = "tokenmill-cli"
+default-run = "tokenmill"
 edition.workspace = true
 license.workspace = true
 version.workspace = true
@@ -7,6 +8,10 @@ version.workspace = true
 [[bin]]
 name = "tokenmill"
 path = "src/main.rs"
+
+[[bin]]
+name = "tokenmill-tray"
+path = "src/tray_launcher.rs"
 
 [dependencies]
 serde_json = "=1.0.145"
