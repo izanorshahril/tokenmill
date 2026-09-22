@@ -1,0 +1,1 @@
+{"nodes": [{"id": "pkg_tokenmill_core", "label": "tokenmill-core", "file_type": "code", "type": "package", "ecosystem": "cargo", "source_file": "crates/tokenmill-core/Cargo.toml", "source_location": "L1"}], "edges": []}

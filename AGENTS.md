@@ -7,6 +7,7 @@
 - `tokenmill-acp` owns ACP transport, process lifecycle, replay, streaming updates, and permissions.
 - `tokenmill-cli` owns explicit user-facing workflows and redacted observation reports.
 - Read `CONTEXT.md` before changing domain terms or integration boundaries.
+- Read [docs/LESSONS_LEARNED.md](docs/LESSONS_LEARNED.md) before changing runtime, packaging, ACP, or tray boundaries.
 
 ## Working rules
 
@@ -14,6 +15,7 @@
 - Tokenmill's product focus is GitHub Copilot; do not use Microsoft Copilot or an ambiguous `copilot.exe` reference when naming or validating the target.
 - Live ACP examples must identify the GitHub Copilot CLI/ACP executable explicitly; a filename alone does not establish product identity.
 - Treat GitHub Copilot interception and native model-picker routing as unsupported unless verified by an explicit test.
+- Prove ACP identity and cross-process helper handshakes with focused tests; process presence alone is not user-visible success.
 - Reuse Copilot's own authentication context; never import or persist credentials from another tool.
 - Do not persist raw prompts, source, tool output, or full request and response bodies.
 - Preserve strict versus compatible policy behavior and label unmeasured or unverified runs honestly.
