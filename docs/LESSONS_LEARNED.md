@@ -52,6 +52,30 @@ Report stale logs, unavailable health checks, unverified connectivity, and incom
 
 Do not persist raw prompts, source, tool output, credentials, or full request and response bodies while adding observability.
 
+## Treat local routers as security and lifecycle boundaries
+
+The 9Router incident showed why a local model router needs an explicit owner and a narrow contract rather than being an implicit dependency of a desktop client.
+
+- Codex was configured to select a `9router` provider with base URL `http://127.0.0.1:20128/v1`. This coupling lived in Codex configuration, not in the Codex AppX state.
+- The installed 9router package did not provide a detach or disable-autostart command. Its npm `postinstall` hook only warmed runtime dependencies, and its tray mode was opt-in.
+- At investigation time there was no 9router process, listener on port `20128`, Windows Run entry, scheduled task, startup shortcut, or service. A stale notification-area registry record remained, but it was not an autostart mechanism.
+- Historical Codex logs showed requests being sent to the local endpoint even when no router was available. A client can therefore appear configured while the actual provider is unavailable.
+- The provider configuration contained an authorization header. Secrets must never be copied into lessons, logs, diagnostics, or generated reports; router configuration should use an explicit secret store or inherited credential reference.
+
+The design implication is to make Tokenmill's router lifecycle explicit: own the process, expose health and shutdown operations, provide a clear detach/reset path, fail closed when the endpoint is unavailable, isolate credentials from general configuration, and test restart, upgrade, uninstall, and client reconfiguration behavior. This incident is additional evidence for building a small Tokenmill-owned router boundary instead of relying on undocumented behavior in a third-party local gateway.
+
+## Validate destructive configuration changes
+
+The same OMP cleanup session that inspected the environment later ran a malformed PowerShell regex while filtering User `PATH`:
+
+```powershell
+$_ -notmatch '(?i)Programs\Herdr'
+```
+
+The invalid `\H` escape produced an error for every entry. The pipeline consequently yielded no entries, but the script continued and persisted the empty result. This removed discoverability for npm, Bun, pnpm, Codex, Claude, Gemini, and other tools even though many binaries and packages remained installed. A separate earlier command explicitly removed the Bun-global Pi package; that was a package removal, not the cause of the broad PATH failure.
+
+For any environment mutation, snapshot the original value, use literal path comparisons where possible, validate the candidate is non-empty and preserves required roots, write only after validation, and re-read the persisted value afterward. Treat malformed filters and partial command output as failure, never as a successful cleanup.
+
 ## Treat client model state as a separate persistence boundary
 
 A provider can return one unique model catalog while the client still displays older identifiers retained in global storage.
