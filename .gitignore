@@ -1,2 +1,4 @@
 /target/
 .kilo/
+/.qmd/index.sqlite*
+/graphify-out/
